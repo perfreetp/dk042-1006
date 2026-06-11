@@ -669,6 +669,24 @@ export function calculateRelationshipImpact(
   return { ...pairs, impact: Math.floor(impact / 2) };
 }
 
+export function calculateMonthlyRelationshipDelta(
+  changes: RelationshipChange[]
+): { improvedCount: number; worsenedCount: number } {
+  let improvedCount = 0;
+  let worsenedCount = 0;
+  const processed = new Set<string>();
+
+  changes.forEach((c) => {
+    const key = [c.discipleAId, c.discipleBId].sort().join("|");
+    if (processed.has(key)) return;
+    processed.add(key);
+    if (c.delta > 0) improvedCount++;
+    if (c.delta < 0) worsenedCount++;
+  });
+
+  return { improvedCount, worsenedCount };
+}
+
 export function generateRuleImpactSummary(ruleTendency: number): { label: string; effect: string }[] {
   const summary: { label: string; effect: string }[] = [];
 
@@ -766,6 +784,7 @@ export function processMonthlySettlement(
     craftRecords: [],
     relationshipChanges: [],
     relationshipSummary: relImpact,
+    relationshipMonthlyDelta: { improvedCount: 0, worsenedCount: 0 },
     ruleImpact,
     inventoryChanges: [],
     bondEffects,

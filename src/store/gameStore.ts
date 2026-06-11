@@ -7,6 +7,7 @@ import type {
   CraftRecord,
   CultivationRecord,
   InventoryChange,
+  RelationshipChange,
   ItemSource,
   ItemType,
   QualityType,
@@ -29,6 +30,7 @@ import {
   getItemMarketPrice,
   applyRelationshipChange,
   calculateRelationshipDelta,
+  calculateMonthlyRelationshipDelta,
 } from '@/utils/gameEngine'
 import { createInitialState } from '@/utils/initialData'
 
@@ -111,7 +113,29 @@ function upsertCurrentReport(
     copy[idx] = { ...copy[idx], ...patch }
     return copy
   }
-  return reports
+  const emptyReport: MonthlyReport = {
+    month,
+    spiritStoneIncome: 0,
+    spiritStoneExpense: 0,
+    spiritStoneNet: 0,
+    reputationChange: 0,
+    casualties: [],
+    breakthroughs: [],
+    newDisciples: [],
+    events: [],
+    factionChanges: [],
+    cultivationGains: 0,
+    explorationRecords: [],
+    craftRecords: [],
+    relationshipChanges: [],
+    relationshipSummary: { improvedPairs: 0, worsenedPairs: 0, impact: 0 },
+    relationshipMonthlyDelta: { improvedCount: 0, worsenedCount: 0 },
+    ruleImpact: [],
+    inventoryChanges: [],
+    bondEffects: [],
+    activeBonds: [],
+  }
+  return [...reports, { ...emptyReport, ...patch }]
 }
 
 function buildInventoryFromGains(
@@ -617,12 +641,39 @@ export const useGameStore = create<GameStore>()((set, get) => ({
       if (item.reserved) {
         return { logs: [...state.logs, `【装备失败】${item.name} 已被标记为保留`] }
       }
+      let newItems: InventoryItem[]
+      let equippedItemId: string
+      if (item.quantity === 1) {
+        newItems = state.items.map((it) =>
+          it.id === itemId ? { ...it, equippedBy: discipleId } : it
+        )
+        equippedItemId = itemId
+      } else {
+        newItems = state.items.map((it) =>
+          it.id === itemId ? { ...it, quantity: it.quantity - 1 } : it
+        )
+        const newItem: InventoryItem = {
+          id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          name: item.name,
+          type: item.type,
+          quality: item.quality,
+          quantity: 1,
+          description: item.description,
+          equippedBy: discipleId,
+          effect: item.effect,
+          source: item.source,
+          reserved: false,
+          marketPrice: item.marketPrice,
+          artifactBonus: item.artifactBonus,
+          pillEffect: item.pillEffect,
+        }
+        newItems.push(newItem)
+        equippedItemId = newItem.id
+      }
       return {
-        items: state.items.map((item) =>
-          item.id === itemId ? { ...item, equippedBy: discipleId } : item
-        ),
+        items: newItems,
         disciples: state.disciples.map((d) =>
-          d.id === discipleId ? { ...d, equippedItems: [...d.equippedItems, itemId] } : d
+          d.id === discipleId ? { ...d, equippedItems: [...d.equippedItems, equippedItemId] } : d
         ),
         logs: [...state.logs, `【第${state.sect.month}月】${disciple.name} 装备了 ${item.name}`],
       }
@@ -633,8 +684,28 @@ export const useGameStore = create<GameStore>()((set, get) => ({
     set((state) => {
       const item = state.items.find((i) => i.id === itemId)
       if (!item || !item.equippedBy) return state
+      const match = state.items.find(
+        (it) =>
+          it.name === item.name &&
+          it.type === item.type &&
+          it.quality === item.quality &&
+          !it.equippedBy &&
+          it.id !== itemId
+      )
+      let newItems: InventoryItem[]
+      if (match) {
+        newItems = state.items
+          .map((it) =>
+            it.id === match.id ? { ...it, quantity: it.quantity + 1 } : it
+          )
+          .filter((it) => it.id !== itemId)
+      } else {
+        newItems = state.items.map((it) =>
+          it.id === itemId ? { ...it, equippedBy: null } : it
+        )
+      }
       return {
-        items: state.items.map((item) => (item.id === itemId ? { ...item, equippedBy: null } : item)),
+        items: newItems,
         disciples: state.disciples.map((d) =>
           d.id === item.equippedBy
             ? { ...d, equippedItems: d.equippedItems.filter((id) => id !== itemId) }
@@ -967,15 +1038,18 @@ export const useGameStore = create<GameStore>()((set, get) => ({
       }
       let report = processMonthlySettlement(stateForReport)
 
+      const finalRelationshipChanges: RelationshipChange[] = [
+        ...relResult.changes,
+        ...(state.reports.find((r) => r.month === state.sect.month)?.relationshipChanges || []),
+      ]
+
       report = {
         ...report,
         casualties: allCasualties,
         explorationRecords,
         craftRecords,
-        relationshipChanges: [
-          ...relResult.changes,
-          ...(state.reports.find((r) => r.month === state.sect.month)?.relationshipChanges || []),
-        ],
+        relationshipChanges: finalRelationshipChanges,
+        relationshipMonthlyDelta: calculateMonthlyRelationshipDelta(finalRelationshipChanges),
         inventoryChanges,
       }
 

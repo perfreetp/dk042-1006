@@ -270,7 +270,15 @@ export interface MonthlyReport {
   explorationRecords: ExplorationRecord[];
   craftRecords: CraftRecord[];
   relationshipChanges: RelationshipChange[];
-  relationshipSummary: { improvedPairs: number; worsenedPairs: number; impact: number };
+  relationshipSummary: {
+    improvedPairs: number;
+    worsenedPairs: number;
+    impact: number;
+  };
+  relationshipMonthlyDelta: {
+    improvedCount: number;
+    worsenedCount: number;
+  };
   ruleImpact: { label: string; effect: string }[];
   inventoryChanges: InventoryChange[];
   bondEffects: BondEffect[];

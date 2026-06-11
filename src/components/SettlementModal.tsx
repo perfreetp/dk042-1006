@@ -442,24 +442,38 @@ export default function SettlementModal() {
           {tab === 'relationships' && (
             <div className="space-y-5">
               <div className="bg-bg-dark p-4 rounded-lg border border-border">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Link className="w-5 h-5 text-gold" />
-                    <span className="font-display text-gold-light">弟子关系总览</span>
+                    <span className="font-display text-gold-light">本月关系变化</span>
                   </div>
                   <div className="flex gap-4 text-sm">
                     <span className="text-green-light">
-                      友好关系 {currentSettlement.relationshipSummary.improvedPairs} 对
+                      关系改善 {currentSettlement.relationshipMonthlyDelta.improvedCount} 对
                     </span>
                     <span className="text-red-light">
-                      对立关系 {currentSettlement.relationshipSummary.worsenedPairs} 对
+                      关系恶化 {currentSettlement.relationshipMonthlyDelta.worsenedCount} 对
                     </span>
-                    <span className={`${
-                      currentSettlement.relationshipSummary.impact >= 0 ? 'text-green-light' : 'text-red-light'
-                    }`}>
-                      关系影响（声望） {currentSettlement.relationshipSummary.impact >= 0 ? '+' : ''}
-                      {currentSettlement.relationshipSummary.impact}
-                    </span>
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-3 mt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-display text-gold-light text-sm">当前关系状态</span>
+                    <div className="flex gap-4 text-sm">
+                      <span className="text-green-light">
+                        友好关系 {currentSettlement.relationshipSummary.improvedPairs} 对
+                      </span>
+                      <span className="text-red-light">
+                        对立关系 {currentSettlement.relationshipSummary.worsenedPairs} 对
+                      </span>
+                      <span className={`${
+                        currentSettlement.relationshipSummary.impact >= 0 ? 'text-green-light' : 'text-red-light'
+                      }`}>
+                        声望影响 {currentSettlement.relationshipSummary.impact >= 0 ? '+' : ''}
+                        {currentSettlement.relationshipSummary.impact}
+                      </span>
+                    </div>
                   </div>
                 </div>
 

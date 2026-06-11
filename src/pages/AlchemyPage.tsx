@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useGameStore } from '@/store/gameStore';
-import type { ItemSource, QualityType, InventoryItem, MaterialInventoryEntry } from '@/types/game';
+import type { ItemSource, QualityType } from '@/types/game';
 import {
   Flame,
   Beaker,
@@ -55,12 +55,12 @@ export default function AlchemyPage() {
   const toggleItemReserved = useGameStore((s) => s.toggleItemReserved);
   const sellMaterial = useGameStore((s) => s.sellMaterial);
   const sellItem = useGameStore((s) => s.sellItem);
-  const usePill = useGameStore((s) => s.usePill);
+  const consumePill = useGameStore((s) => s.usePill);
 
   const [activeTab, setActiveTab] = useState<TabType>('pill');
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null);
   const [craftingResult, setCraftingResult] = useState<{ success: boolean; itemName: string } | null>(null);
-  const [pillModalItem, setPillModalItem] = useState<InventoryItem | null>(null);
+  const [pillModalItemId, setPillModalItemId] = useState<string | null>(null);
 
   const [matFilterSource, setMatFilterSource] = useState<ItemSource | 'all'>('all');
   const [matFilterReserved, setMatFilterReserved] = useState<'all' | 'reserved' | 'unreserved'>('all');
@@ -103,10 +103,10 @@ export default function AlchemyPage() {
     craftItem(selected.id);
   };
 
-  const handleUsePill = (discipleId: string) => {
-    if (!pillModalItem) return;
-    usePill(pillModalItem.id, discipleId);
-    setPillModalItem(null);
+  const administerPillToDisciple = (discipleId: string) => {
+    if (!pillModalItemId) return;
+    consumePill(pillModalItemId, discipleId);
+    setPillModalItemId(null);
   };
 
   const stats = useMemo(() => {
@@ -545,7 +545,7 @@ export default function AlchemyPage() {
 
                           {item.type === 'pill' && !item.reserved && !item.equippedBy && (
                             <button
-                              onClick={() => setPillModalItem(item)}
+                              onClick={() => setPillModalItemId(item.id)}
                               className="btn-primary flex items-center gap-1 px-3 py-2 text-sm"
                             >
                               <Users className="w-4 h-4" />
@@ -713,18 +713,24 @@ export default function AlchemyPage() {
         )}
       </div>
 
-      {pillModalItem && (
+      {pillModalItemId && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in">
           <div className="bg-bg-card border border-border rounded-xl p-6 w-[500px] max-h-[70vh] flex flex-col animate-slide-in-right">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="font-display text-xl text-gold-light">选择弟子服用</h3>
-                <p className="text-text-muted text-sm mt-1">
-                  {pillModalItem.quality} {pillModalItem.name} - {pillModalItem.effect}
-                </p>
+                {(() => {
+                  const pill = items.find((it) => it.id === pillModalItemId);
+                  if (!pill) return null;
+                  return (
+                    <p className="text-text-muted text-sm mt-1">
+                      {pill.quality} {pill.name} - {pill.effect} · 库存 x{pill.quantity}
+                    </p>
+                  );
+                })()}
               </div>
               <button
-                onClick={() => setPillModalItem(null)}
+                onClick={() => setPillModalItemId(null)}
                 className="p-1 hover:bg-bg-dark rounded"
               >
                 <X className="w-5 h-5 text-text-muted" />
@@ -738,30 +744,45 @@ export default function AlchemyPage() {
                   <p>暂无弟子</p>
                 </div>
               ) : (
-                disciples.map((d) => (
-                  <button
-                    key={d.id}
-                    onClick={() => handleUsePill(d.id)}
-                    className="w-full bg-bg-dark hover:bg-bg-dark/80 border border-border hover:border-gold/50 rounded-lg p-3 text-left transition-colors flex items-center gap-3"
-                  >
-                    <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold font-bold">
-                      {d.name.slice(0, 1)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-gold-light">{d.name}</div>
-                      <div className="text-sm text-text-muted">
-                        {d.realm} · {d.spiritRoot}灵根 · {d.status}
+                disciples.map((d) => {
+                  const pill = items.find((it) => it.id === pillModalItemId);
+                  const disabled = !pill || pill.quantity <= 0 || pill.reserved || !!pill.equippedBy;
+                  return (
+                    <button
+                      key={d.id}
+                      onClick={() => !disabled && administerPillToDisciple(d.id)}
+                      disabled={disabled}
+                      className={`w-full border rounded-lg p-3 text-left transition-colors flex items-center gap-3 ${
+                        disabled
+                          ? 'bg-bg-dark/50 border-border text-text-muted cursor-not-allowed'
+                          : 'bg-bg-dark hover:bg-bg-dark/80 border-border hover:border-gold/50'
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold font-bold">
+                        {d.name.slice(0, 1)}
                       </div>
-                      <div className="text-xs text-text-muted mt-1">
-                        修为 {Math.floor(d.cultivation)}/{d.maxCultivation}
-                        {d.status === '受伤' && <span className="text-red-light ml-2">· 受伤中</span>}
+                      <div className="flex-1">
+                        <div className="font-medium text-gold-light">{d.name}</div>
+                        <div className="text-sm text-text-muted">
+                          {d.realm} · {d.spiritRoot}灵根 · {d.status}
+                        </div>
+                        <div className="text-xs text-text-muted mt-1">
+                          修为 {Math.floor(d.cultivation)}/{d.maxCultivation}
+                          {d.status === '受伤' && <span className="text-red-light ml-2">· 受伤中</span>}
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-gold">
-                      <Check className="w-5 h-5" />
-                    </div>
-                  </button>
-                ))
+                      {disabled ? (
+                        <div className="text-text-muted text-xs">
+                          {!pill ? '丹药不存在' : pill.quantity <= 0 ? '库存不足' : pill.reserved ? '已保留' : '已装备'}
+                        </div>
+                      ) : (
+                        <div className="text-gold">
+                          <Check className="w-5 h-5" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
