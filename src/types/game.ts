@@ -31,24 +31,27 @@ export type RealmType =
   | "渡劫";
 
 export type DiscipleStatus =
-  | "idle"
-  | "cultivating"
-  | "expedition"
-  | "exploring"
-  | "injured"
-  | "breakthrough";
+  | "空闲"
+  | "闭关"
+  | "历练"
+  | "探索"
+  | "受伤"
+  | "突破";
 
 export type EventSeverity = "low" | "medium" | "high" | "critical";
 
-export type FactionRelationType = "ally" | "neutral" | "hostile";
+export type FactionRelationType = "盟友" | "中立" | "敌对";
 
 export type ItemType = "pill" | "artifact" | "material";
 
 export type QualityType = "下品" | "中品" | "上品" | "极品";
 
-export type SectRuleTendency = number & { readonly __brand: unique symbol };
-
 export type MaterialRarity = "common" | "uncommon" | "rare" | "legendary";
+
+export interface DiscipleRelationship {
+  discipleId: string;
+  value: number;
+}
 
 export interface Disciple {
   id: string;
@@ -61,10 +64,11 @@ export interface Disciple {
   maxCultivation: number;
   status: DiscipleStatus;
   assignedSlotId: string | null;
-  spiritStonesAllocated: number;
+  allocatedStones: number;
   lifespan: number;
-  relationships: Map<string, number>;
+  relationships: DiscipleRelationship[];
   equippedItems: string[];
+  avatar: number;
 }
 
 export interface Sect {
@@ -73,13 +77,12 @@ export interface Sect {
   reputation: number;
   month: number;
   ruleTendency: number;
-  maxCultivationSlots: number;
 }
 
 export interface CultivationSlot {
   id: string;
-  discipleId: string | null;
   name: string;
+  occupantId: string | null;
 }
 
 export interface SecretRealmReward {
@@ -88,32 +91,25 @@ export interface SecretRealmReward {
   quantity: number;
 }
 
-export interface SecretRealm {
+export interface ExpeditionRealm {
   id: string;
   name: string;
-  difficulty: 1 | 2 | 3 | 4 | 5;
+  difficulty: number;
   recommendedRealmIndex: number;
   description: string;
+  status: "未探索" | "探索中" | "已完成";
+  teamIds: string[];
   rewards: SecretRealmReward[];
-  isActive: boolean;
-  teamDiscipleIds: string[];
-  progress: number;
-  completed: boolean;
-}
-
-export interface RecipeMaterial {
-  name: string;
-  quantity: number;
 }
 
 export interface Recipe {
   id: string;
   name: string;
   type: "pill" | "artifact";
-  requiredMaterials: RecipeMaterial[];
+  materials: Record<string, number>;
   successRate: number;
-  qualityChance: Record<QualityType, number>;
-  resultItem: string;
+  resultQuality: QualityType;
+  description: string;
 }
 
 export interface InventoryItem {
@@ -124,35 +120,30 @@ export interface InventoryItem {
   quantity: number;
   description: string;
   equippedBy: string | null;
+  effect: string;
 }
 
-export interface Material {
-  id: string;
-  name: string;
-  quantity: number;
-  rarity: MaterialRarity;
+export interface MaterialInventory {
+  [key: string]: number;
 }
 
-export interface EventChoice {
+export interface EventOption {
   text: string;
-  effects: Record<string, number>;
+  effects: {
+    spiritStones?: number;
+    reputation?: number;
+    ruleTendency?: number;
+  };
 }
 
 export interface SectEvent {
   id: string;
   title: string;
   description: string;
-  type:
-    | "dialogue"
-    | "dispute"
-    | "disaster"
-    | "invasion"
-    | "treasure"
-    | "betrayal"
-    | "opportunity";
+  type: "dialogue" | "dispute" | "disaster" | "invasion" | "treasure" | "betrayal" | "opportunity";
   severity: EventSeverity;
   relatedDiscipleIds: string[];
-  choices: EventChoice[];
+  options: EventOption[];
   resolved: boolean;
   monthOccurred: number;
 }
@@ -162,11 +153,13 @@ export interface Faction {
   name: string;
   relation: FactionRelationType;
   power: number;
+  lastChange: number;
 }
 
 export interface Casualty {
   discipleId: string;
   cause: string;
+  discipleName: string;
 }
 
 export interface MonthlyReport {
@@ -178,21 +171,22 @@ export interface MonthlyReport {
   breakthroughs: string[];
   newDisciples: string[];
   events: SectEvent[];
+  factionChanges: { factionId: string; oldRelation: FactionRelationType; newRelation: FactionRelationType }[];
+  cultivationGains: number;
 }
 
 export interface GameState {
   sect: Sect;
   disciples: Disciple[];
   cultivationSlots: CultivationSlot[];
-  secretRealms: SecretRealm[];
+  expeditionRealms: ExpeditionRealm[];
   recipes: Recipe[];
-  inventory: InventoryItem[];
-  materials: Material[];
+  items: InventoryItem[];
+  materials: MaterialInventory;
   events: SectEvent[];
   factions: Faction[];
-  monthlyReports: MonthlyReport[];
-  pendingEvents: SectEvent[];
-  log: string[];
+  reports: MonthlyReport[];
+  logs: string[];
 }
 
 export const REALM_NAMES: RealmType[] = [
@@ -220,46 +214,40 @@ export const SPIRIT_ROOT_COLORS: Record<SpiritRootType, string> = {
 };
 
 export const PERSONALITY_NAMES: Record<PersonalityType, string> = {
-  刚正: "刚正",
-  阴柔: "阴柔",
-  狂傲: "狂傲",
-  谦逊: "谦逊",
-  多谋: "多谋",
-  鲁莽: "鲁莽",
-  淡泊: "淡泊",
-  执念: "执念",
+  刚正: "刚正不阿",
+  阴柔: "阴柔内敛",
+  狂傲: "狂傲不羁",
+  谦逊: "谦逊有礼",
+  多谋: "多谋善断",
+  鲁莽: "鲁莽冲动",
+  淡泊: "淡泊名利",
+  执念: "执念深重",
 };
 
 export const REALM_CULTIVATION_REQUIREMENTS: number[] = [
-  100,
-  500,
-  2000,
-  8000,
-  30000,
-  100000,
-  400000,
-  1500000,
+  100, 500, 2000, 8000, 30000, 100000, 400000, 1500000,
 ];
 
 export const DISCIPLE_GENERATION_CONFIG = {
   spiritStoneCost: 100,
-  recruitmentBaseSuccessRate: 0.6,
   rareSpiritRootChance: 0.05,
-  variantSpiritRootChance: 0.01,
+  variantSpiritRootChance: 0.03,
   heavenSpiritRootChance: 0.02,
   baseLifespan: 200,
   lifespanPerRealm: 150,
-  baseCultivation: 0,
-  initialRealmIndex: 0,
-  maxInitialRealmIndex: 2,
-  personalityWeights: {
-    刚正: 0.15,
-    阴柔: 0.1,
-    狂傲: 0.12,
-    谦逊: 0.15,
-    多谋: 0.12,
-    鲁莽: 0.1,
-    淡泊: 0.13,
-    执念: 0.13,
-  } as Record<PersonalityType, number>,
 } as const;
+
+export const STATUS_COLORS: Record<DiscipleStatus, string> = {
+  空闲: "#10B981",
+  闭关: "#8B5CF6",
+  历练: "#F59E0B",
+  探索: "#3B82F6",
+  受伤: "#EF4444",
+  突破: "#EC4899",
+};
+
+export const RELATION_COLORS: Record<FactionRelationType, string> = {
+  盟友: "#10B981",
+  中立: "#6B7280",
+  敌对: "#EF4444",
+};

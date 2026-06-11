@@ -1,57 +1,66 @@
-# React + TypeScript + Vite
+# AI 修仙宗门经营游戏
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+玩家扮演宗主管理由不同 AI 弟子组成的小宗门，体验修仙世界的经营与抉择。
 
-Currently, two official plugins are available:
+## 功能界面
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **宗门总览**：核心数据面板、月度收益、声望变化、事件通知
+- **弟子名册**：弟子列表、灵根/性格/境界详情、招募新弟子
+- **洞府修炼**：安排闭关、修炼进度、突破概率、灵石分配
+- **秘境探索**：秘境列表、组队派遣、探索进度、战利品结算
+- **炼丹炼器**：丹方/图纸、材料库存、炼制操作、成品管理
+- **门派议事**：弟子对话、门规调整、随机事件、势力关系
 
-## Expanding the ESLint configuration
+## 运行方式
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 网页端开发
+```bash
+npm install
+npm run dev
+```
+访问 http://localhost:5173
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+### 桌面端开发（Electron）
+```bash
+npm install
+# 终端1：启动网页服务
+npm run dev
+# 终端2：启动 Electron 客户端
+npm run electron:dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config({
-  extends: [
-    // other configs...
-    // Enable lint rules for React
-    reactX.configs['recommended-typescript'],
-    // Enable lint rules for React DOM
-    reactDom.configs.recommended,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+### 构建桌面端安装包
+```bash
+npm install
+npm run electron:build
 ```
+安装包将生成在 `release/` 目录
+
+### 直接运行已构建版本
+```bash
+npm run build
+npm run electron:start
+```
+
+## 核心玩法
+
+1. **招募弟子**：消耗灵石招募，灵根和性格随机
+2. **闭关修炼**：安排弟子进入洞府，分配灵石加速
+3. **境界突破**：修为满后尝试突破，有失败概率
+4. **秘境探索**：组队探索，获取材料和战利品
+5. **炼丹炼器**：消耗材料炼制丹药和法器
+6. **处理事件**：每月触发随机事件，做出抉择
+7. **月度结算**：查看收益、伤亡、突破、势力关系变化
+
+## 操作快捷键
+
+- `Ctrl+S`：保存游戏
+- `Ctrl+L`：读取存档
+- `Ctrl+R`：重新开始
+- `F5`：刷新
+- `F11`：全屏切换
+- `F12`：开发者工具
+
+## 数据保存
+
+游戏自动保存到 localStorage，每 60 秒自动保存一次，关闭窗口前也会自动保存。刷新页面后数据不会丢失。

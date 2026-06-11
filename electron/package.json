@@ -1,0 +1,7 @@
+{
+  "name": "xiuxian-sector-electron",
+  "version": "1.0.0",
+  "description": "AI修仙宗门经营 - Electron主进程",
+  "main": "main.js",
+  "type": "commonjs"
+}
