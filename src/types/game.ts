@@ -162,17 +162,60 @@ export interface Casualty {
   discipleName: string;
 }
 
+export interface ExplorationRecord {
+  realmId: string;
+  realmName: string;
+  success: boolean;
+  spiritStones: number;
+  reputation: number;
+  casualties: Casualty[];
+  materialGains: Record<string, number>;
+  itemGains: { name: string; type: ItemType; quality: QualityType; quantity: number }[];
+}
+
+export interface RelationshipChange {
+  discipleAId: string;
+  discipleAName: string;
+  discipleBId: string;
+  discipleBName: string;
+  delta: number;
+  reason: string;
+}
+
+export interface CultivationRecord {
+  discipleId: string;
+  discipleName: string;
+  attempted: boolean;
+  success: boolean;
+  fromRealm?: RealmType;
+  toRealm?: RealmType;
+}
+
+export interface CraftRecord {
+  recipeId: string;
+  recipeName: string;
+  type: "pill" | "artifact";
+  success: boolean;
+  quality: QualityType;
+}
+
 export interface MonthlyReport {
   month: number;
   spiritStoneIncome: number;
   spiritStoneExpense: number;
+  spiritStoneNet: number;
   reputationChange: number;
   casualties: Casualty[];
-  breakthroughs: string[];
+  breakthroughs: CultivationRecord[];
   newDisciples: string[];
   events: SectEvent[];
-  factionChanges: { factionId: string; oldRelation: FactionRelationType; newRelation: FactionRelationType }[];
+  factionChanges: { factionId: string; factionName: string; oldRelation: FactionRelationType; newRelation: FactionRelationType }[];
   cultivationGains: number;
+  explorationRecords: ExplorationRecord[];
+  craftRecords: CraftRecord[];
+  relationshipChanges: RelationshipChange[];
+  relationshipSummary: { improved: number; worsened: number; impact: number };
+  ruleImpact: { label: string; effect: string }[];
 }
 
 export interface GameState {

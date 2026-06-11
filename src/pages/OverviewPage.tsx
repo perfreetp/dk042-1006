@@ -23,6 +23,7 @@ export default function OverviewPage() {
   const reports = useGameStore((s) => s.reports);
   const logs = useGameStore((s) => s.logs);
   const advanceMonth = useGameStore((s) => s.advanceMonth);
+  const openHistoricalReport = useGameStore((s) => s.openHistoricalReport);
 
   const unresolvedEvents = events.filter((e) => !e.resolved);
   const cultivatingCount = disciples.filter((d) => d.status === '闭关').length;
@@ -261,9 +262,12 @@ export default function OverviewPage() {
 
       {recentReports.length > 0 && (
         <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
-          <div className="p-4 border-b border-border flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-gold" />
-            <h2 className="font-display text-lg text-gold-light">近期收支</h2>
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-gold" />
+              <h2 className="font-display text-lg text-gold-light">近期战报</h2>
+            </div>
+            <span className="text-xs text-text-muted">点击柱形查看详情</span>
           </div>
           <div className="p-4">
             <div className="flex items-end gap-4 h-32">
@@ -272,18 +276,24 @@ export default function OverviewPage() {
                 const maxVal = Math.max(...recentReports.map((r) => Math.abs(r.spiritStoneIncome - r.spiritStoneExpense)), 1);
                 const height = `${(Math.abs(net) / maxVal) * 100}%`;
                 return (
-                  <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                    <div className="text-xs text-text-muted">第{report.month}月</div>
+                  <button
+                    key={idx}
+                    onClick={() => openHistoricalReport(report.month)}
+                    className="flex-1 flex flex-col items-center gap-2 group cursor-pointer"
+                  >
+                    <div className="text-xs text-text-muted group-hover:text-gold-light transition-colors">第{report.month}月</div>
                     <div className="w-full flex-1 flex items-end">
                       <div
-                        className={`w-full rounded-t ${net >= 0 ? 'bg-green/50' : 'bg-red/50'}`}
+                        className={`w-full rounded-t transition-all group-hover:shadow-lg group-hover:brightness-110 ${
+                          net >= 0 ? 'bg-gradient-to-t from-green/30 to-green/60' : 'bg-gradient-to-t from-red/30 to-red/60'
+                        }`}
                         style={{ height }}
                       />
                     </div>
                     <div className={`text-xs font-medium ${net >= 0 ? 'text-green-light' : 'text-red-light'}`}>
                       {net >= 0 ? '+' : ''}{net}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>

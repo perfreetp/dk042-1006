@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import {
   Flame,
@@ -17,6 +17,8 @@ export default function AlchemyPage() {
   const items = useGameStore((s) => s.items);
   const materials = useGameStore((s) => s.materials);
   const craftItem = useGameStore((s) => s.craftItem);
+  const pendingCraftResult = useGameStore((s) => s.pendingCraftResult);
+  const clearPendingCraftResult = useGameStore((s) => s.clearPendingCraftResult);
 
   const [activeTab, setActiveTab] = useState<TabType>('pill');
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null);
@@ -28,6 +30,18 @@ export default function AlchemyPage() {
   const currentRecipes = activeTab === 'pill' ? pillRecipes : artifactRecipes;
   const selected = currentRecipes.find((r) => r.id === selectedRecipe);
 
+  useEffect(() => {
+    if (pendingCraftResult) {
+      setCraftingResult({
+        success: pendingCraftResult.success,
+        itemName: pendingCraftResult.recipeName,
+      });
+      clearPendingCraftResult();
+      const timer = setTimeout(() => setCraftingResult(null), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingCraftResult, clearPendingCraftResult]);
+
   const canCraft = (recipe: typeof recipes[0]) => {
     for (const [material, amount] of Object.entries(recipe.materials)) {
       if ((materials[material] || 0) < amount) return false;
@@ -38,11 +52,6 @@ export default function AlchemyPage() {
   const handleCraft = () => {
     if (!selected) return;
     craftItem(selected.id);
-    setCraftingResult({
-      success: Math.random() < selected.successRate,
-      itemName: selected.name,
-    });
-    setTimeout(() => setCraftingResult(null), 3000);
   };
 
   const tabs: { id: TabType; label: string; icon: typeof Flame }[] = [

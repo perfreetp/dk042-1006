@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { GameState, MonthlyReport } from '@/types/game'
+import type { GameState, MonthlyReport, InventoryItem, ExplorationRecord, CraftRecord, CultivationRecord } from '@/types/game'
 import { REALM_NAMES, REALM_CULTIVATION_REQUIREMENTS } from '@/types/game'
 import {
   getRecruitCost,
@@ -9,12 +9,15 @@ import {
   generateRandomEvents,
   processMonthlySettlement,
   processCultivationGains,
+  generateMonthlyRelationshipChanges,
+  applyRuleTendencyModifier,
 } from '@/utils/gameEngine'
 import { createInitialState } from '@/utils/initialData'
 
 interface GameStoreState extends GameState {
   showSettlement: boolean
   currentSettlement: MonthlyReport | null
+  pendingCraftResult: CraftRecord | null
 }
 
 interface GameStoreActions {
@@ -23,10 +26,10 @@ interface GameStoreActions {
   assignCultivation: (discipleId: string, slotId: string) => void
   removeFromCultivation: (discipleId: string) => void
   allocateSpiritStones: (discipleId: string, amount: number) => void
-  attemptBreakthrough: (discipleId: string) => void
+  attemptBreakthrough: (discipleId: string) => CultivationRecord | null
   assignExpedition: (realmId: string, teamIds: string[]) => void
-  completeExpedition: (realmId: string) => void
-  craftItem: (recipeId: string) => void
+  completeExpedition: (realmId: string) => ExplorationRecord | null
+  craftItem: (recipeId: string) => CraftRecord | null
   equipItem: (itemId: string, discipleId: string) => void
   unequipItem: (itemId: string) => void
   resolveEvent: (eventId: string, choiceIndex: number) => void
@@ -37,14 +40,44 @@ interface GameStoreActions {
   saveGame: () => void
   loadGame: () => boolean
   healDisciple: (discipleId: string) => void
+  openHistoricalReport: (month: number) => void
+  clearPendingCraftResult: () => void
 }
 
 type GameStore = GameStoreState & GameStoreActions
+
+function buildInventoryFromGains(
+  gains: { name: string; type: 'pill' | 'artifact'; quality: '下品' | '中品' | '上品' | '极品'; quantity: number; description: string; effect: string }[],
+  existingItems: InventoryItem[]
+): InventoryItem[] {
+  let items = [...existingItems]
+  gains.forEach((g) => {
+    const match = items.find(
+      (it) => it.name === g.name && it.type === g.type && it.quality === g.quality && !it.equippedBy
+    )
+    if (match) {
+      items = items.map((it) => (it.id === match.id ? { ...it, quantity: it.quantity + g.quantity } : it))
+    } else {
+      items.push({
+        id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name: g.name,
+        type: g.type,
+        quality: g.quality,
+        quantity: g.quantity,
+        description: g.description,
+        equippedBy: null,
+        effect: g.effect,
+      })
+    }
+  })
+  return items
+}
 
 export const useGameStore = create<GameStore>()((set, get) => ({
   ...createInitialState(),
   showSettlement: false,
   currentSettlement: null,
+  pendingCraftResult: null,
 
   initGame() {
     const initial = createInitialState()
@@ -52,20 +85,25 @@ export const useGameStore = create<GameStore>()((set, get) => ({
       ...initial,
       showSettlement: false,
       currentSettlement: null,
+      pendingCraftResult: null,
     })
   },
 
   recruitDisciple() {
-    const { disciples, sect, logs } = get()
+    const { disciples, sect, logs, reports } = get()
     const cost = getRecruitCost(disciples)
     if (sect.spiritStones < cost) {
       set({ logs: [...logs, `【招募失败】灵石不足，需要 ${cost} 灵石`] })
       return
     }
     const newDisciple = generateDisciple()
+    const updatedReports = reports.length > 0
+      ? reports.map((r, i) => i === reports.length - 1 ? { ...r, newDisciples: [...r.newDisciples, newDisciple.id] } : r)
+      : reports
     set({
       sect: { ...sect, spiritStones: sect.spiritStones - cost },
       disciples: [...disciples, newDisciple],
+      reports: updatedReports,
       logs: [...logs, `【第${sect.month}月】招募新弟子 ${newDisciple.name}，灵根：${newDisciple.spiritRoot}，性格：${newDisciple.personality}`],
     })
   },
@@ -124,16 +162,28 @@ export const useGameStore = create<GameStore>()((set, get) => ({
     })
   },
 
-  attemptBreakthrough(discipleId: string) {
+  attemptBreakthrough(discipleId: string): CultivationRecord | null {
+    let result: CultivationRecord | null = null
     set((state) => {
       const disciple = state.disciples.find((d) => d.id === discipleId)
       if (!disciple) return state
       if (disciple.cultivation < disciple.maxCultivation) return state
+      if (disciple.realmIndex >= REALM_NAMES.length - 1) return state
       const chance = calculateBreakthroughChance(disciple)
       const roll = Math.random()
-      if (roll < chance) {
-        const newRealmIndex = disciple.realmIndex + 1
-        if (newRealmIndex >= REALM_NAMES.length) return state
+      const success = roll < chance
+      const newRealmIndex = disciple.realmIndex + 1
+
+      result = {
+        discipleId,
+        discipleName: disciple.name,
+        attempted: true,
+        success,
+        fromRealm: disciple.realm,
+        toRealm: success ? REALM_NAMES[newRealmIndex] : undefined,
+      }
+
+      if (success) {
         const newMaxCultivation = REALM_CULTIVATION_REQUIREMENTS[newRealmIndex]
         return {
           disciples: state.disciples.map((d) =>
@@ -163,6 +213,7 @@ export const useGameStore = create<GameStore>()((set, get) => ({
         logs: [...state.logs, `【第${state.sect.month}月】${disciple.name} 突破失败，走火入魔身受重伤！`],
       }
     })
+    return result
   },
 
   assignExpedition(realmId: string, teamIds: string[]) {
@@ -181,30 +232,58 @@ export const useGameStore = create<GameStore>()((set, get) => ({
     })
   },
 
-  completeExpedition(realmId: string) {
+  completeExpedition(realmId: string): ExplorationRecord | null {
+    let record: ExplorationRecord | null = null
     set((state) => {
       const realm = state.expeditionRealms.find((r) => r.id === realmId)
       if (!realm) return state
       const team = state.disciples.filter((d) => realm.teamIds.includes(d.id))
       const result = calculateExpeditionResult(realm, team)
-      const newItems = [...state.items, ...result.items]
+
+      const newMaterials = { ...state.materials }
+      Object.entries(result.materialGains).forEach(([k, v]) => {
+        newMaterials[k] = (newMaterials[k] || 0) + v
+      })
+      const newItems = buildInventoryFromGains(result.itemGains, state.items)
+
       const updatedDisciples = state.disciples.map((d) => {
         if (!realm.teamIds.includes(d.id)) return d
-        return result.casualties.includes(d.id)
+        const isInjured = result.casualties.some((c) => c.discipleId === d.id)
+        return isInjured
           ? { ...d, status: '受伤' as const }
           : { ...d, status: '空闲' as const, cultivation: Math.min(d.cultivation + 30, d.maxCultivation) }
       })
+
       const logs = [...state.logs]
       logs.push(`【第${state.sect.month}月】${realm.name} 探索${result.success ? '成功' : '失败'}！`)
       if (result.spiritStones > 0) logs.push(`  获得灵石：${result.spiritStones}`)
       if (result.reputation !== 0) logs.push(`  声望${result.reputation > 0 ? '提升' : '下降'}：${Math.abs(result.reputation)}`)
-      result.casualties.forEach((id) => {
-        const injured = state.disciples.find((d) => d.id === id)
-        if (injured) logs.push(`  ${injured.name} 在探索中身受重伤！`)
+      result.casualties.forEach((c) => {
+        logs.push(`  ${c.discipleName} ${c.cause}！`)
       })
-      result.items.forEach((item) => {
-        logs.push(`  获得物品：${item.name} x${item.quantity}`)
+      Object.entries(result.materialGains).forEach(([k, v]) => {
+        logs.push(`  获得材料：${k} x${v}`)
       })
+      result.itemGains.forEach((item) => {
+        logs.push(`  获得${item.type === 'pill' ? '丹药' : '法器'}：${item.quality}${item.name} x${item.quantity}`)
+      })
+
+      record = {
+        realmId,
+        realmName: realm.name,
+        success: result.success,
+        spiritStones: result.spiritStones,
+        reputation: result.reputation,
+        casualties: result.casualties,
+        materialGains: result.materialGains,
+        itemGains: result.itemGains.map((g) => ({
+          name: g.name,
+          type: g.type,
+          quality: g.quality,
+          quantity: g.quantity,
+        })),
+      }
+
       return {
         sect: {
           ...state.sect,
@@ -215,13 +294,16 @@ export const useGameStore = create<GameStore>()((set, get) => ({
           r.id === realmId ? { ...r, status: '已完成' as const, teamIds: [] } : r
         ),
         disciples: updatedDisciples,
+        materials: newMaterials,
         items: newItems,
         logs,
       }
     })
+    return record
   },
 
-  craftItem(recipeId: string) {
+  craftItem(recipeId: string): CraftRecord | null {
+    let record: CraftRecord | null = null
     set((state) => {
       const recipe = state.recipes.find((r) => r.id === recipeId)
       if (!recipe) return state
@@ -230,38 +312,60 @@ export const useGameStore = create<GameStore>()((set, get) => ({
           return { logs: [...state.logs, `【炼丹炼器】材料不足，无法炼制 ${recipe.name}`] }
         }
       }
-      const roll = Math.random()
-      const success = roll < recipe.successRate
-      if (!success) {
-        const newMaterials = { ...state.materials }
-        for (const [material, amount] of Object.entries(recipe.materials)) {
-          newMaterials[material] = (newMaterials[material] || 0) - amount
-        }
-        return {
-          materials: newMaterials,
-          logs: [...state.logs, `【炼丹炼器】炼制 ${recipe.name} 失败，材料已消耗`],
-        }
-      }
       const newMaterials = { ...state.materials }
       for (const [material, amount] of Object.entries(recipe.materials)) {
         newMaterials[material] = (newMaterials[material] || 0) - amount
       }
-      const newItem = {
-        id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name: recipe.name,
+
+      const roll = Math.random()
+      const success = roll < recipe.successRate
+
+      record = {
+        recipeId,
+        recipeName: recipe.name,
         type: recipe.type,
+        success,
         quality: recipe.resultQuality,
-        quantity: 1,
-        description: recipe.description,
-        equippedBy: null,
-        effect: '',
+      }
+
+      if (!success) {
+        return {
+          materials: newMaterials,
+          pendingCraftResult: record,
+          logs: [...state.logs, `【炼丹炼器】炼制 ${recipe.name} 失败，材料已消耗`],
+        }
+      }
+
+      let newItems = [...state.items]
+      const match = newItems.find(
+        (it) => it.name === recipe.name && it.type === recipe.type && it.quality === recipe.resultQuality && !it.equippedBy
+      )
+      if (match) {
+        newItems = newItems.map((it) => (it.id === match.id ? { ...it, quantity: it.quantity + 1 } : it))
+      } else {
+        newItems.push({
+          id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          name: recipe.name,
+          type: recipe.type,
+          quality: recipe.resultQuality,
+          quantity: 1,
+          description: recipe.description,
+          equippedBy: null,
+          effect: recipe.type === 'pill' ? '服用可增益修为' : '装备可提升战力',
+        })
       }
       return {
         materials: newMaterials,
-        items: [...state.items, newItem],
+        items: newItems,
+        pendingCraftResult: record,
         logs: [...state.logs, `【炼丹炼器】成功炼制 ${recipe.resultQuality} ${recipe.name}！`],
       }
     })
+    return record
+  },
+
+  clearPendingCraftResult() {
+    set({ pendingCraftResult: null })
   },
 
   equipItem(itemId: string, discipleId: string) {
@@ -304,24 +408,25 @@ export const useGameStore = create<GameStore>()((set, get) => ({
       if (!event || event.resolved) return state
       const option = event.options[choiceIndex]
       if (!option) return state
+
+      const effects = applyRuleTendencyModifier(option.effects || {}, state.sect.ruleTendency)
+
       const logs = [...state.logs, `【事件】${event.title} - 选择：${option.text}`]
       let spiritStones = state.sect.spiritStones
       let reputation = state.sect.reputation
       let ruleTendency = state.sect.ruleTendency
 
-      if (option.effects) {
-        if (option.effects.spiritStones) {
-          spiritStones += option.effects.spiritStones
-          logs.push(`  灵石${option.effects.spiritStones > 0 ? '增加' : '减少'}：${Math.abs(option.effects.spiritStones)}`)
-        }
-        if (option.effects.reputation) {
-          reputation = Math.max(0, Math.min(100, reputation + option.effects.reputation))
-          logs.push(`  声望${option.effects.reputation > 0 ? '提升' : '下降'}：${Math.abs(option.effects.reputation)}`)
-        }
-        if (option.effects.ruleTendency) {
-          ruleTendency = Math.max(0, Math.min(100, ruleTendency + option.effects.ruleTendency))
-          logs.push(`  门规倾向调整：${option.effects.ruleTendency > 0 ? '更宽松' : '更严苛'}`)
-        }
+      if (effects.spiritStones) {
+        spiritStones += effects.spiritStones
+        logs.push(`  灵石${effects.spiritStones > 0 ? '增加' : '减少'}：${Math.abs(effects.spiritStones)}${state.sect.ruleTendency >= 80 || state.sect.ruleTendency <= 20 ? '（门规修正）' : ''}`)
+      }
+      if (effects.reputation) {
+        reputation = Math.max(0, Math.min(100, reputation + effects.reputation))
+        logs.push(`  声望${effects.reputation > 0 ? '提升' : '下降'}：${Math.abs(effects.reputation)}${state.sect.ruleTendency >= 80 || state.sect.ruleTendency <= 20 ? '（门规修正）' : ''}`)
+      }
+      if (effects.ruleTendency) {
+        ruleTendency = Math.max(0, Math.min(100, ruleTendency + effects.ruleTendency))
+        logs.push(`  门规倾向调整：${effects.ruleTendency > 0 ? '更宽松' : '更严苛'}`)
       }
       return {
         sect: { ...state.sect, spiritStones, reputation, ruleTendency },
@@ -340,16 +445,88 @@ export const useGameStore = create<GameStore>()((set, get) => ({
   advanceMonth() {
     set((state) => {
       const cultivationResult = processCultivationGains(state)
-      const updatedState = { ...state, ...cultivationResult }
-      const report = processMonthlySettlement(updatedState)
+      let workingState: GameState = { ...state, ...cultivationResult }
 
-      let disciples = [...updatedState.disciples]
-      let spiritStones = updatedState.sect.spiritStones + report.spiritStoneIncome - report.spiritStoneExpense
-      let reputation = Math.max(0, Math.min(100, updatedState.sect.reputation + report.reputationChange))
-      const logs = [...updatedState.logs]
+      const relResult = generateMonthlyRelationshipChanges(workingState)
+      workingState = { ...workingState, disciples: relResult.disciples }
 
-      disciples = disciples.map((d) => {
-        if (report.breakthroughs.includes(d.id) && d.realmIndex < REALM_NAMES.length - 1) {
+      const explorationRecords: ExplorationRecord[] = []
+      const craftRecords: CraftRecord[] = []
+      let spiritStones = workingState.sect.spiritStones
+      let reputation = workingState.sect.reputation
+      const allCasualties: MonthlyReport['casualties'] = []
+      let disciples = [...workingState.disciples]
+      let materials = { ...workingState.materials }
+      let items = [...workingState.items]
+      const logs = [...workingState.logs]
+
+      workingState.expeditionRealms.forEach((r) => {
+        if (r.status === '探索中') {
+          const team = disciples.filter((d) => r.teamIds.includes(d.id))
+          const result = calculateExpeditionResult(r, team)
+
+          spiritStones += result.spiritStones
+          reputation = Math.max(0, Math.min(100, reputation + result.reputation))
+
+          Object.entries(result.materialGains).forEach(([k, v]) => {
+            materials[k] = (materials[k] || 0) + v
+          })
+          items = buildInventoryFromGains(result.itemGains, items)
+
+          disciples = disciples.map((d) => {
+            if (!r.teamIds.includes(d.id)) return d
+            const isInjured = result.casualties.some((c) => c.discipleId === d.id)
+            return isInjured
+              ? { ...d, status: '受伤' as const }
+              : { ...d, status: '空闲' as const }
+          })
+
+          allCasualties.push(...result.casualties)
+          logs.push(`【第${state.sect.month}月】${r.name} 探索${result.success ? '成功' : '失败'}，灵石 ${result.spiritStones > 0 ? '+' : ''}${result.spiritStones}`)
+
+          explorationRecords.push({
+            realmId: r.id,
+            realmName: r.name,
+            success: result.success,
+            spiritStones: result.spiritStones,
+            reputation: result.reputation,
+            casualties: result.casualties,
+            materialGains: result.materialGains,
+            itemGains: result.itemGains.map((g) => ({
+              name: g.name,
+              type: g.type,
+              quality: g.quality,
+              quantity: g.quantity,
+            })),
+          })
+        }
+      })
+
+      const updatedRealms = workingState.expeditionRealms.map((r) =>
+        r.status === '探索中' ? { ...r, status: '已完成' as const, teamIds: [] } : r
+      )
+
+      const stateForReport: GameState = {
+        ...workingState,
+        sect: { ...workingState.sect, spiritStones, reputation },
+        disciples,
+        materials,
+        items,
+        expeditionRealms: updatedRealms,
+      }
+      let report = processMonthlySettlement(stateForReport)
+
+      report = {
+        ...report,
+        casualties: allCasualties,
+        explorationRecords,
+        craftRecords,
+        relationshipChanges: relResult.changes,
+      }
+
+      let updatedDisciples = disciples.map((d) => {
+        const record = report.breakthroughs.find((b) => b.discipleId === d.id && b.success)
+        if (record && d.realmIndex < REALM_NAMES.length - 1) {
           const newIdx = d.realmIndex + 1
           logs.push(`【第${state.sect.month}月】${d.name} 成功突破至 ${REALM_NAMES[newIdx]}！`)
           return {
@@ -363,7 +540,7 @@ export const useGameStore = create<GameStore>()((set, get) => ({
         return d
       })
 
-      let factions = [...updatedState.factions]
+      let factions = [...workingState.factions]
       report.factionChanges.forEach((change) => {
         factions = factions.map((f) =>
           f.id === change.factionId
@@ -372,39 +549,24 @@ export const useGameStore = create<GameStore>()((set, get) => ({
         )
         const faction = factions.find((f) => f.id === change.factionId)
         if (faction) {
-          logs.push(`【第${state.sect.month}月】与 ${faction.name} 的关系变为：${change.newRelation}`)
+          logs.push(`【第${state.sect.month}月】与 ${faction.name} 的关系：${change.oldRelation} → ${change.newRelation}`)
         }
       })
 
-      state.expeditionRealms.forEach((r) => {
-        if (r.status === '探索中') {
-          const team = disciples.filter((d) => r.teamIds.includes(d.id))
-          const result = calculateExpeditionResult(r, team)
-          spiritStones += result.spiritStones
-          reputation = Math.max(0, Math.min(100, reputation + result.reputation))
-          disciples = disciples.map((d) => {
-            if (!r.teamIds.includes(d.id)) return d
-            return result.casualties.includes(d.id)
-              ? { ...d, status: '受伤' as const }
-              : { ...d, status: '空闲' as const }
-          })
-          logs.push(`【第${state.sect.month}月】${r.name} 探索${result.success ? '成功' : '失败'}，获得 ${result.spiritStones} 灵石`)
-        }
-      })
+      const newEvents = generateRandomEvents({ ...workingState, sect: { ...workingState.sect, month: state.sect.month + 1 } })
 
-      const updatedRealms = state.expeditionRealms.map((r) =>
-        r.status === '探索中' ? { ...r, status: '已完成' as const, teamIds: [] } : r
-      )
-
-      const newEvents = generateRandomEvents({ ...updatedState, sect: { ...updatedState.sect, month: state.sect.month + 1 } })
+      spiritStones = spiritStones + report.spiritStoneIncome - report.spiritStoneExpense
+      reputation = Math.max(0, Math.min(100, reputation + report.reputationChange))
 
       logs.unshift(`========== 第 ${state.sect.month + 1} 月 ==========`)
 
       return {
-        sect: { ...updatedState.sect, month: state.sect.month + 1, spiritStones, reputation },
-        disciples,
+        sect: { ...workingState.sect, month: state.sect.month + 1, spiritStones, reputation },
+        disciples: updatedDisciples,
         expeditionRealms: updatedRealms,
         factions,
+        materials,
+        items,
         reports: [...state.reports, report],
         showSettlement: true,
         currentSettlement: report,
@@ -416,6 +578,13 @@ export const useGameStore = create<GameStore>()((set, get) => ({
 
   dismissSettlement() {
     set({ showSettlement: false })
+  },
+
+  openHistoricalReport(month: number) {
+    const report = get().reports.find((r) => r.month === month)
+    if (report) {
+      set({ currentSettlement: report, showSettlement: true })
+    }
   },
 
   addLog(message: string) {
@@ -443,6 +612,7 @@ export const useGameStore = create<GameStore>()((set, get) => ({
         ...data,
         showSettlement: false,
         currentSettlement: null,
+        pendingCraftResult: null,
       })
       set((state) => ({ logs: [...state.logs, `【系统】游戏已读取`] }))
       return true
