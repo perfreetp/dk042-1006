@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
-import { SPIRIT_ROOT_COLORS, STATUS_COLORS, PERSONALITY_NAMES, REALM_NAMES } from '@/types/game';
-import { getRecruitCost, calculateBreakthroughChance } from '@/utils/gameEngine';
+import { SPIRIT_ROOT_COLORS, STATUS_COLORS, PERSONALITY_NAMES, REALM_NAMES, BOND_COLORS } from '@/types/game';
+import { getRecruitCost, calculateBreakthroughChance, calculateDiscipleCombatPower } from '@/utils/gameEngine';
 import {
   Users,
   UserPlus,
@@ -12,6 +12,9 @@ import {
   Shield,
   HeartPulse,
   Gem,
+  Zap,
+  Pill,
+  Link2,
 } from 'lucide-react';
 
 export default function DisciplesPage() {
@@ -22,6 +25,7 @@ export default function DisciplesPage() {
   const healDisciple = useGameStore((s) => s.healDisciple);
   const equipItem = useGameStore((s) => s.equipItem);
   const unequipItem = useGameStore((s) => s.unequipItem);
+  const usePill = useGameStore((s) => s.usePill);
 
   const [selectedDisciple, setSelectedDisciple] = useState<string | null>(null);
   const [showRecruitConfirm, setShowRecruitConfirm] = useState(false);
@@ -31,12 +35,27 @@ export default function DisciplesPage() {
   const equippedItems = selected
     ? items.filter((i) => i.equippedBy === selected.id)
     : [];
-  const availableItems = items.filter((i) => !i.equippedBy && i.type !== 'material');
+  const availableItems = items.filter((i) => !i.equippedBy && i.type !== 'material' && i.type !== 'pill');
+  const availablePills = items.filter((i) => i.type === 'pill' && !i.equippedBy);
 
   const getBreakthroughText = (d: typeof disciples[0]) => {
     if (d.realmIndex >= REALM_NAMES.length - 1) return '已达最高';
     const chance = calculateBreakthroughChance(d);
     return `${(chance * 100).toFixed(0)}%`;
+  };
+
+  const getDiscipleName = (id: string) => {
+    const d = disciples.find((x) => x.id === id);
+    return d ? d.name : '未知';
+  };
+
+  const formatArtifactBonus = (bonus?: { power?: number; cultivationSpeed?: number; defense?: number }) => {
+    if (!bonus) return '';
+    const parts: string[] = [];
+    if (bonus.power) parts.push(`战力+${bonus.power}`);
+    if (bonus.defense) parts.push(`防御+${bonus.defense}`);
+    if (bonus.cultivationSpeed) parts.push(`修炼+${bonus.cultivationSpeed}%`);
+    return parts.join(' · ');
   };
 
   return (
@@ -61,79 +80,105 @@ export default function DisciplesPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto grid grid-cols-2 lg:grid-cols-3 gap-4 pr-2">
-          {disciples.map((disciple) => (
-            <div
-              key={disciple.id}
-              onClick={() => setSelectedDisciple(disciple.id)}
-              className={`bg-bg-card border rounded-lg p-4 cursor-pointer card-hover ${
-                selectedDisciple === disciple.id ? 'border-gold' : 'border-border'
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className="w-14 h-14 rounded-full flex items-center justify-center font-bold text-xl flex-shrink-0"
-                  style={{
-                    backgroundColor: SPIRIT_ROOT_COLORS[disciple.spiritRoot] + '30',
-                    color: SPIRIT_ROOT_COLORS[disciple.spiritRoot],
-                    border: `3px solid ${SPIRIT_ROOT_COLORS[disciple.spiritRoot]}`,
-                  }}
-                >
-                  {disciple.name.slice(0, 1)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-lg">{disciple.name}</span>
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
-                      style={{
-                        backgroundColor: STATUS_COLORS[disciple.status] + '20',
-                        color: STATUS_COLORS[disciple.status],
-                      }}
-                    >
-                      {disciple.status}
-                    </span>
+          {disciples.map((disciple) => {
+            const combatPower = calculateDiscipleCombatPower(disciple, items);
+            return (
+              <div
+                key={disciple.id}
+                onClick={() => setSelectedDisciple(disciple.id)}
+                className={`bg-bg-card border rounded-lg p-4 cursor-pointer card-hover ${
+                  selectedDisciple === disciple.id ? 'border-gold' : 'border-border'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-14 h-14 rounded-full flex items-center justify-center font-bold text-xl flex-shrink-0"
+                    style={{
+                      backgroundColor: SPIRIT_ROOT_COLORS[disciple.spiritRoot] + '30',
+                      color: SPIRIT_ROOT_COLORS[disciple.spiritRoot],
+                      border: `3px solid ${SPIRIT_ROOT_COLORS[disciple.spiritRoot]}`,
+                    }}
+                  >
+                    {disciple.name.slice(0, 1)}
                   </div>
-                  <div className="flex items-center gap-2 text-sm mt-1">
-                    <span
-                      className="px-2 py-0.5 rounded text-xs"
-                      style={{
-                        backgroundColor: SPIRIT_ROOT_COLORS[disciple.spiritRoot] + '20',
-                        color: SPIRIT_ROOT_COLORS[disciple.spiritRoot],
-                      }}
-                    >
-                      {disciple.spiritRoot}灵根
-                    </span>
-                    <span className="text-gold-light">{disciple.realm}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-lg">{disciple.name}</span>
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+                        style={{
+                          backgroundColor: STATUS_COLORS[disciple.status] + '20',
+                          color: STATUS_COLORS[disciple.status],
+                        }}
+                      >
+                        {disciple.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm mt-1">
+                      <span
+                        className="px-2 py-0.5 rounded text-xs"
+                        style={{
+                          backgroundColor: SPIRIT_ROOT_COLORS[disciple.spiritRoot] + '20',
+                          color: SPIRIT_ROOT_COLORS[disciple.spiritRoot],
+                        }}
+                      >
+                        {disciple.spiritRoot}灵根
+                      </span>
+                      <span className="text-gold-light">{disciple.realm}</span>
+                      <span className="text-red-light flex items-center gap-1 ml-auto">
+                        <Zap className="w-3 h-3" />
+                        {combatPower}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="mt-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-text-muted">性格</span>
-                  <span>{PERSONALITY_NAMES[disciple.personality]}</span>
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-text-muted">修为</span>
-                    <span>
-                      {Math.floor(disciple.cultivation)}/{disciple.maxCultivation}
-                    </span>
+                {disciple.bonds.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <div className="flex flex-wrap gap-1">
+                      {disciple.bonds.map((bond, idx) => (
+                        <span
+                          key={idx}
+                          className="text-xs px-2 py-0.5 rounded-full"
+                          style={{
+                            backgroundColor: BOND_COLORS[bond.type] + '20',
+                            color: BOND_COLORS[bond.type],
+                          }}
+                        >
+                          {bond.type}·{getDiscipleName(bond.withDiscipleId)}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                  <div className="progress-bar">
-                    <div
-                      className="progress-fill bg-gradient-to-r from-purple to-purple-light"
-                      style={{ width: `${(disciple.cultivation / disciple.maxCultivation) * 100}%` }}
-                    />
+                )}
+
+                <div className="mt-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-text-muted">性格</span>
+                    <span>{PERSONALITY_NAMES[disciple.personality]}</span>
                   </div>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-text-muted">突破概率</span>
-                  <span className="text-gold-light">{getBreakthroughText(disciple)}</span>
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-text-muted">修为</span>
+                      <span>
+                        {Math.floor(disciple.cultivation)}/{disciple.maxCultivation}
+                      </span>
+                    </div>
+                    <div className="progress-bar">
+                      <div
+                        className="progress-fill bg-gradient-to-r from-purple to-purple-light"
+                        style={{ width: `${(disciple.cultivation / disciple.maxCultivation) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-text-muted">突破概率</span>
+                    <span className="text-gold-light">{getBreakthroughText(disciple)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -163,6 +208,12 @@ export default function DisciplesPage() {
               </div>
               <h2 className="text-2xl font-bold mt-3">{selected.name}</h2>
               <p className="text-gold-light">{selected.realm}</p>
+              <div className="mt-2 inline-flex items-center gap-2 px-4 py-1.5 bg-bg-dark rounded-full">
+                <Zap className="w-4 h-4 text-red-light" />
+                <span className="font-bold text-red-light">
+                  战力 {calculateDiscipleCombatPower(selected, items)}
+                </span>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -223,6 +274,61 @@ export default function DisciplesPage() {
             </div>
 
             <div>
+              <h4 className="font-display text-gold-light mb-3 flex items-center gap-2">
+                <Link2 className="w-4 h-4" />
+                关系与羁绊
+              </h4>
+              <div className="space-y-3">
+                {selected.relationships.length > 0 && (
+                  <div className="bg-bg-dark rounded-lg p-3">
+                    <p className="text-text-muted text-xs mb-2">人际关系</p>
+                    <div className="space-y-1.5">
+                      {[...selected.relationships]
+                        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+                        .map((rel) => (
+                          <div key={rel.discipleId} className="flex items-center justify-between text-sm">
+                            <span>{getDiscipleName(rel.discipleId)}</span>
+                            <span style={{ color: rel.value >= 0 ? '#10B981' : '#EF4444' }}>
+                              {rel.value > 0 ? '+' : ''}{rel.value}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                {selected.bonds.length > 0 && (
+                  <div className="bg-bg-dark rounded-lg p-3">
+                    <p className="text-text-muted text-xs mb-2">特殊羁绊</p>
+                    <div className="space-y-2">
+                      {selected.bonds.map((bond, idx) => (
+                        <div key={idx} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full"
+                              style={{
+                                backgroundColor: BOND_COLORS[bond.type] + '20',
+                                color: BOND_COLORS[bond.type],
+                              }}
+                            >
+                              {bond.type}
+                            </span>
+                            <span className="text-sm">{getDiscipleName(bond.withDiscipleId)}</span>
+                          </div>
+                          <span className="text-xs text-text-muted">
+                            第{bond.monthFormed}月结成
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {selected.relationships.length === 0 && selected.bonds.length === 0 && (
+                  <p className="text-text-muted text-sm">暂无关系与羁绊</p>
+                )}
+              </div>
+            </div>
+
+            <div>
               <h4 className="font-display text-gold-light mb-3">已装备</h4>
               {equippedItems.length > 0 ? (
                 <div className="space-y-2">
@@ -231,13 +337,18 @@ export default function DisciplesPage() {
                       key={item.id}
                       className="flex items-center justify-between p-3 bg-bg-dark rounded-lg"
                     >
-                      <div>
+                      <div className="flex-1 min-w-0">
                         <p className="font-medium">{item.name}</p>
                         <p className="text-xs text-text-muted">{item.quality}</p>
+                        {item.artifactBonus && (
+                          <p className="text-xs text-gold-light mt-0.5">
+                            {formatArtifactBonus(item.artifactBonus)}
+                          </p>
+                        )}
                       </div>
                       <button
                         onClick={() => unequipItem(item.id)}
-                        className="btn-secondary text-xs py-1 px-2"
+                        className="btn-secondary text-xs py-1 px-2 ml-2"
                       >
                         卸下
                       </button>
@@ -249,6 +360,38 @@ export default function DisciplesPage() {
               )}
             </div>
 
+            {availablePills.length > 0 && (
+              <div>
+                <h4 className="font-display text-gold-light mb-3 flex items-center gap-2">
+                  <Pill className="w-4 h-4" />
+                  丹药库
+                </h4>
+                <div className="space-y-2">
+                  {availablePills.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3 bg-bg-dark rounded-lg"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium flex items-center gap-2">
+                          {item.name}
+                          <span className="text-xs text-text-muted">x{item.quantity}</span>
+                        </p>
+                        <p className="text-xs text-text-muted">{item.quality} · {item.effect}</p>
+                      </div>
+                      <button
+                        onClick={() => usePill(item.id, selected.id)}
+                        className="btn-gold text-xs py-1 px-2 ml-2 flex items-center gap-1"
+                      >
+                        <Pill className="w-3 h-3" />
+                        服用
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {availableItems.length > 0 && (
               <div>
                 <h4 className="font-display text-gold-light mb-3">可装备</h4>
@@ -258,13 +401,18 @@ export default function DisciplesPage() {
                       key={item.id}
                       className="flex items-center justify-between p-3 bg-bg-dark rounded-lg"
                     >
-                      <div>
+                      <div className="flex-1 min-w-0">
                         <p className="font-medium">{item.name}</p>
                         <p className="text-xs text-text-muted">{item.quality}</p>
+                        {item.artifactBonus && (
+                          <p className="text-xs text-gold-light mt-0.5">
+                            {formatArtifactBonus(item.artifactBonus)}
+                          </p>
+                        )}
                       </div>
                       <button
                         onClick={() => equipItem(item.id, selected.id)}
-                        className="btn-gold text-xs py-1 px-2"
+                        className="btn-gold text-xs py-1 px-2 ml-2"
                       >
                         装备
                       </button>

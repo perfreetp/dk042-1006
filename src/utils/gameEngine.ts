@@ -6,6 +6,7 @@ import type {
   MonthlyReport,
   GameState,
   SectEvent,
+  EventTemplate,
   ExpeditionRealm,
   Faction,
   FactionRelationType,
@@ -13,10 +14,17 @@ import type {
   CultivationRecord,
   ExplorationRecord,
   QualityType,
+  InventoryItem,
+  BondType,
+  BondEffect,
+  ItemType,
+  PillEffect,
+  ArtifactBonus,
 } from "@/types/game";
 import {
   REALM_NAMES,
   REALM_CULTIVATION_REQUIREMENTS,
+  QUALITY_PRICE_MULTIPLIER,
 } from "@/types/game";
 
 const SURNAMES = [
@@ -71,6 +79,7 @@ export function generateDisciple(): Disciple {
     allocatedStones: 0,
     lifespan: 200,
     relationships: [],
+    bonds: [],
     equippedItems: [],
     avatar: Math.floor(Math.random() * 8),
   };
@@ -80,7 +89,7 @@ export function getRecruitCost(disciples: Disciple[]): number {
   return 100 + disciples.length * 80;
 }
 
-export function calculateBreakthroughChance(disciple: Disciple): number {
+export function calculateBreakthroughChance(disciple: Disciple, items: InventoryItem[] = []): number {
   let base = 40;
 
   if (disciple.spiritRoot === "天灵根") base += 30;
@@ -92,10 +101,15 @@ export function calculateBreakthroughChance(disciple: Disciple): number {
   base += Math.min((disciple.allocatedStones / 100) * 5, 25);
   base -= disciple.realmIndex * 3;
 
+  disciple.equippedItems.forEach((iid) => {
+    const it = items.find((i) => i.id === iid);
+    if (it?.pillEffect?.breakthroughBoost) base += it.pillEffect.breakthroughBoost;
+  });
+
   return Math.max(5, Math.min(95, base)) / 100;
 }
 
-export function calculateCultivationSpeed(disciple: Disciple): number {
+export function calculateCultivationSpeed(disciple: Disciple, items: InventoryItem[] = [], bondMultiplier = 1): number {
   let base = 20;
 
   if (disciple.spiritRoot === "天灵根") base += 15;
@@ -104,10 +118,59 @@ export function calculateCultivationSpeed(disciple: Disciple): number {
 
   base += disciple.allocatedStones / 100 * 3;
 
+  disciple.equippedItems.forEach((iid) => {
+    const it = items.find((i) => i.id === iid);
+    if (it?.artifactBonus?.cultivationSpeed) base += it.artifactBonus.cultivationSpeed;
+  });
+
   if (disciple.status === "闭关") base *= 1.5;
   if (disciple.status === "受伤") base *= 0.3;
 
+  base *= bondMultiplier;
+
   return Math.floor(base);
+}
+
+export function calculateDiscipleCombatPower(disciple: Disciple, items: InventoryItem[] = []): number {
+  let power = (disciple.realmIndex + 1) * 100 + disciple.cultivation / 10;
+
+  disciple.equippedItems.forEach((iid) => {
+    const it = items.find((i) => i.id === iid);
+    if (it?.artifactBonus?.power) power += it.artifactBonus.power;
+  });
+
+  if (disciple.status === "受伤") power *= 0.5;
+  return Math.floor(power);
+}
+
+export function getPillEffect(name: string, quality: QualityType): PillEffect {
+  const mult = QUALITY_PRICE_MULTIPLIER[quality] || 1;
+  if (name.includes("疗伤") || name.includes("大还")) return { heal: true };
+  if (name.includes("突破")) return { breakthroughBoost: Math.floor(15 * mult) };
+  return { cultivationGain: Math.floor(30 * mult) };
+}
+
+export function getArtifactBonus(name: string, quality: QualityType): ArtifactBonus {
+  const mult = QUALITY_PRICE_MULTIPLIER[quality] || 1;
+  if (name.includes("盾") || name.includes("玉佩") || name.includes("护")) {
+    return { defense: Math.floor(50 * mult), power: Math.floor(30 * mult) };
+  }
+  if (name.includes("剑") || name.includes("刀") || name.includes("符箓") || name.includes("攻击")) {
+    return { power: Math.floor(100 * mult) };
+  }
+  if (name.includes("修炼") || name.includes("辅助")) {
+    return { cultivationSpeed: Math.floor(10 * mult), power: Math.floor(20 * mult) };
+  }
+  return { power: Math.floor(60 * mult) };
+}
+
+export function getItemMarketPrice(
+  name: string,
+  quality: QualityType,
+  type: ItemType
+): number {
+  const base = type === "pill" ? 30 : 80;
+  return Math.ceil(base * (QUALITY_PRICE_MULTIPLIER[quality] || 1));
 }
 
 export interface ExpeditionResult {
@@ -122,23 +185,42 @@ export interface ExpeditionResult {
     quantity: number;
     description: string;
     effect: string;
+    pillEffect?: PillEffect;
+    artifactBonus?: ArtifactBonus;
+    marketPrice: number;
   }[];
   casualties: { discipleId: string; cause: string; discipleName: string }[];
 }
 
-const MATERIAL_POOL: Record<number, string[]> = {
-  0: ["灵草", "赤铁", "玄石", "青藤"],
-  1: ["冰晶", "雷精", "火云石", "乙木精"],
-  2: ["龙涎草", "万年冰魄", "天罡砂", "幽冥铁"],
+const MATERIAL_POOL: Record<number, { name: string; price: number }[]> = {
+  0: [
+    { name: "灵草", price: 20 },
+    { name: "赤铁", price: 30 },
+    { name: "玄石", price: 40 },
+    { name: "青藤", price: 10 },
+  ],
+  1: [
+    { name: "冰晶", price: 60 },
+    { name: "雷精", price: 100 },
+    { name: "火云石", price: 80 },
+    { name: "乙木精", price: 120 },
+  ],
+  2: [
+    { name: "龙涎草", price: 200 },
+    { name: "万年冰魄", price: 300 },
+    { name: "天罡砂", price: 250 },
+    { name: "幽冥铁", price: 400 },
+  ],
 };
 
 const PILL_POOL: QualityType[] = ["下品", "中品", "上品", "极品"];
 
 export function calculateExpeditionResult(
   realm: ExpeditionRealm,
-  team: Disciple[]
+  team: Disciple[],
+  items: InventoryItem[] = []
 ): ExpeditionResult {
-  const teamPower = team.reduce((sum, d) => sum + (d.realmIndex + 1) * 100 + d.cultivation / 10, 0);
+  const teamPower = team.reduce((sum, d) => sum + calculateDiscipleCombatPower(d, items), 0);
   const requiredPower = realm.recommendedRealmIndex * 200 + realm.difficulty * 100;
 
   const successChance = Math.max(0.2, Math.min(0.95, teamPower / (teamPower + requiredPower)));
@@ -147,22 +229,24 @@ export function calculateExpeditionResult(
   const baseReward = success ? 200 + realm.difficulty * 150 : 50;
   const reputationGain = success ? realm.difficulty * 5 : -realm.difficulty * 3;
 
-  const casualties: ExpeditionResult["casualties"] = [];
-  const casualtyCount = success
-    ? Math.floor(Math.random() * (Math.random() < 0.3 ? 1 : 0))
-    : Math.floor(Math.random() * 2) + 1;
+  let casualtyProb = success ? 0.15 : 0.4;
+  team.forEach((d) => {
+    d.equippedItems.forEach((iid) => {
+      const it = items.find((i) => i.id === iid);
+      if (it?.artifactBonus?.defense) casualtyProb = Math.max(0, casualtyProb - 0.1);
+    });
+  });
 
-  for (let i = 0; i < casualtyCount; i++) {
-    const idx = Math.floor(Math.random() * team.length);
-    const d = team[idx];
-    if (d && !casualties.find((c) => c.discipleId === d.id)) {
+  const casualties: ExpeditionResult["casualties"] = [];
+  team.forEach((d) => {
+    if (!casualties.find((c) => c.discipleId === d.id) && Math.random() < casualtyProb) {
       casualties.push({
         discipleId: d.id,
         discipleName: d.name,
         cause: success ? "探索受伤" : "探索失败重伤",
       });
     }
-  }
+  });
 
   const materialGains: Record<string, number> = {};
   const itemGains: ExpeditionResult["itemGains"] = [];
@@ -172,32 +256,42 @@ export function calculateExpeditionResult(
     const matCount = 1 + Math.floor(Math.random() * 2) + realm.difficulty;
     for (let i = 0; i < matCount; i++) {
       const mat = matPool[Math.floor(Math.random() * matPool.length)];
-      if (mat) materialGains[mat] = (materialGains[mat] || 0) + 1 + Math.floor(Math.random() * 3);
+      if (mat) materialGains[mat.name] = (materialGains[mat.name] || 0) + 1 + Math.floor(Math.random() * 3);
     }
 
     if (Math.random() < 0.3 + realm.difficulty * 0.1) {
       const pillNames = ["筑基丹", "聚灵丹", "疗伤丹", "凝神丹", "大还丹"];
       const qualityIdx = Math.min(3, Math.floor(Math.random() * (realm.difficulty + 1)));
+      const q = PILL_POOL[qualityIdx] || "中品";
+      const nm = pillNames[Math.min(pillNames.length - 1, realm.difficulty)] || "聚灵丹";
+      const eff = getPillEffect(nm, q);
       itemGains.push({
-        name: pillNames[Math.min(pillNames.length - 1, realm.difficulty)] || "聚灵丹",
+        name: nm,
         type: "pill",
-        quality: PILL_POOL[qualityIdx] || "中品",
+        quality: q,
         quantity: 1 + Math.floor(Math.random() * 2),
-        description: `秘境探索获得的${PILL_POOL[qualityIdx] || "中品"}丹药`,
-        effect: qualityIdx >= 2 ? "修为+100" : "修为+40",
+        description: `秘境探索获得的${q}丹药`,
+        effect: eff.cultivationGain ? `修为+${eff.cultivationGain}` : eff.heal ? "治愈伤势" : `突破率+${eff.breakthroughBoost || 0}%`,
+        pillEffect: eff,
+        marketPrice: getItemMarketPrice(nm, q, "pill"),
       });
     }
 
     if (Math.random() < 0.2 + realm.difficulty * 0.08) {
       const artNames = ["青锋剑", "玄铁盾", "护身玉佩", "攻击符箓", "飞行法器"];
       const qualityIdx = Math.min(3, Math.floor(Math.random() * (realm.difficulty + 1)));
+      const q = PILL_POOL[qualityIdx] || "中品";
+      const nm = artNames[Math.min(artNames.length - 1, realm.difficulty)] || "青锋剑";
+      const bonus = getArtifactBonus(nm, q);
       itemGains.push({
-        name: artNames[Math.min(artNames.length - 1, realm.difficulty)] || "青锋剑",
+        name: nm,
         type: "artifact",
-        quality: PILL_POOL[qualityIdx] || "中品",
+        quality: q,
         quantity: 1,
-        description: `秘境探索获得的${PILL_POOL[qualityIdx] || "中品"}法器`,
-        effect: qualityIdx >= 2 ? "战力+200" : "战力+80",
+        description: `秘境探索获得的${q}法器`,
+        effect: bonus.power ? `战力+${bonus.power}` : "辅助法器",
+        artifactBonus: bonus,
+        marketPrice: getItemMarketPrice(nm, q, "artifact"),
       });
     }
   }
@@ -217,7 +311,13 @@ export function processCultivationGains(
 ): Partial<GameState> {
   const updatedDisciples = state.disciples.map((d) => {
     if (d.status !== "闭关") return d;
-    const gain = calculateCultivationSpeed(d);
+    let mult = 1;
+    d.bonds.forEach((b) => {
+      if (b.type === "同修") mult += 0.15;
+      if (b.type === "师徒") mult += 0.1;
+      if (b.type === "仇敌") mult -= 0.1;
+    });
+    const gain = calculateCultivationSpeed(d, state.items, mult);
     const newCultivation = Math.min(d.cultivation + gain, d.maxCultivation);
     return { ...d, cultivation: newCultivation };
   });
@@ -343,6 +443,123 @@ export function applyRelationshipChange(
   };
 }
 
+export function autoUpdateBonds(disciples: Disciple[], month: number): Disciple[] {
+  return disciples.map((d) => {
+    const newBonds = [...d.bonds];
+    d.relationships.forEach((rel) => {
+      const existing = newBonds.find((b) => b.withDiscipleId === rel.discipleId);
+      if (rel.value >= 60 && !existing) {
+        const other = disciples.find((x) => x.id === rel.discipleId);
+        if (other) {
+          const type: BondType =
+            Math.abs(d.realmIndex - other.realmIndex) >= 2 ? "师徒" :
+            rel.value >= 80 ? "同修" : "挚友";
+          newBonds.push({ withDiscipleId: rel.discipleId, type, monthFormed: month });
+        }
+      }
+      if (rel.value <= -50 && !existing) {
+        newBonds.push({ withDiscipleId: rel.discipleId, type: "仇敌", monthFormed: month });
+      }
+      if (existing && existing.type === "仇敌" && rel.value > -20) {
+        const idx = newBonds.findIndex((b) => b.withDiscipleId === rel.discipleId);
+        if (idx >= 0) newBonds.splice(idx, 1);
+      }
+      if (existing && existing.type !== "仇敌" && existing.type !== "路人" && rel.value < 40) {
+        const idx = newBonds.findIndex((b) => b.withDiscipleId === rel.discipleId);
+        if (idx >= 0) newBonds.splice(idx, 1);
+      }
+    });
+    return { ...d, bonds: newBonds };
+  });
+}
+
+export function calculateBondEffects(
+  disciples: Disciple[]
+): { bondEffects: BondEffect[]; cultivationBoost: number; expeditionBoost: number; reputationImpact: number } {
+  const bondEffects: BondEffect[] = [];
+  let cultivationBoost = 0;
+  let expeditionBoost = 0;
+  let reputationImpact = 0;
+  const processed = new Set<string>();
+
+  disciples.forEach((a) => {
+    a.bonds.forEach((b) => {
+      const key = [a.id, b.withDiscipleId].sort().join("|");
+      if (processed.has(key)) return;
+      processed.add(key);
+      const other = disciples.find((d) => d.id === b.withDiscipleId);
+      if (!other) return;
+
+      let effect = "";
+      let cb = 0;
+      let eb = 0;
+      let ri = 0;
+      switch (b.type) {
+        case "同修":
+          effect = "结伴同修，彼此修炼速度+15%，探索默契提升";
+          cb = 15;
+          eb = 10;
+          ri = 2;
+          break;
+        case "师徒":
+          effect = "师徒传承，徒弟修炼速度+10%，师父声望提升";
+          cb = 10;
+          eb = 5;
+          ri = 3;
+          break;
+        case "挚友":
+          effect = "挚友并肩，探索成功率提升";
+          cb = 5;
+          eb = 15;
+          ri = 1;
+          break;
+        case "仇敌":
+          effect = "仇敌对立，修炼效率-10%，容易起冲突";
+          cb = -10;
+          eb = -15;
+          ri = -3;
+          break;
+        default:
+          break;
+      }
+      if (effect) {
+        cultivationBoost += cb;
+        expeditionBoost += eb;
+        reputationImpact += ri;
+        bondEffects.push({
+          discipleAName: a.name,
+          discipleBName: other.name,
+          type: b.type,
+          effect,
+          cultivationBoost: cb,
+          expeditionBoost: eb,
+          reputationImpact: ri,
+        });
+      }
+    });
+  });
+
+  return { bondEffects, cultivationBoost, expeditionBoost, reputationImpact };
+}
+
+export function countRelationshipPairs(disciples: Disciple[]): { improvedPairs: number; worsenedPairs: number } {
+  let improvedPairs = 0;
+  let worsenedPairs = 0;
+  const processed = new Set<string>();
+
+  disciples.forEach((a) => {
+    a.relationships.forEach((rel) => {
+      const key = [a.id, rel.discipleId].sort().join("|");
+      if (processed.has(key)) return;
+      processed.add(key);
+      if (rel.value >= 30) improvedPairs++;
+      if (rel.value <= -30) worsenedPairs++;
+    });
+  });
+
+  return { improvedPairs, worsenedPairs };
+}
+
 export function generateMonthlyRelationshipChanges(
   state: GameState
 ): { disciples: Disciple[]; changes: RelationshipChange[] } {
@@ -435,20 +652,21 @@ export function applyRuleTendencyModifier(
 
 export function calculateRelationshipImpact(
   disciples: Disciple[]
-): { improved: number; worsened: number; impact: number } {
-  let improved = 0;
-  let worsened = 0;
+): { improvedPairs: number; worsenedPairs: number; impact: number } {
+  const pairs = countRelationshipPairs(disciples);
   let impact = 0;
+  const processed = new Set<string>();
 
-  disciples.forEach((d) => {
-    d.relationships.forEach((r) => {
-      if (r.value >= 30) improved++;
-      if (r.value <= -30) worsened++;
+  disciples.forEach((a) => {
+    a.relationships.forEach((r) => {
+      const key = [a.id, r.discipleId].sort().join("|");
+      if (processed.has(key)) return;
+      processed.add(key);
       impact += r.value;
     });
   });
 
-  return { improved, worsened, impact: Math.floor(impact / 2) };
+  return { ...pairs, impact: Math.floor(impact / 2) };
 }
 
 export function generateRuleImpactSummary(ruleTendency: number): { label: string; effect: string }[] {
@@ -468,7 +686,21 @@ export function generateRuleImpactSummary(ruleTendency: number): { label: string
 export function processMonthlySettlement(
   state: GameState
 ): MonthlyReport {
-  const income = 200 + state.disciples.length * 50;
+  const { bondEffects, cultivationBoost, expeditionBoost, reputationImpact } = calculateBondEffects(state.disciples);
+
+  const activeBonds: MonthlyReport["activeBonds"] = [];
+  const processed = new Set<string>();
+  state.disciples.forEach((a) => {
+    a.bonds.forEach((b) => {
+      const key = [a.id, b.withDiscipleId].sort().join("|");
+      if (processed.has(key)) return;
+      processed.add(key);
+      const other = state.disciples.find((d) => d.id === b.withDiscipleId);
+      if (other) activeBonds.push({ discipleAName: a.name, discipleBName: other.name, type: b.type });
+    });
+  });
+
+  const income = Math.floor((200 + state.disciples.length * 50) * (state.sect.ruleTendency >= 80 ? 1.2 : 1));
   const expense = state.disciples.length * 30 + state.disciples.filter((d) => d.status === "闭关").length * 50;
   const net = income - expense;
 
@@ -476,7 +708,7 @@ export function processMonthlySettlement(
 
   state.disciples.forEach((d) => {
     if (d.status === "闭关" && d.cultivation >= d.maxCultivation && d.realmIndex < REALM_NAMES.length - 1) {
-      const chance = calculateBreakthroughChance(d);
+      const chance = calculateBreakthroughChance(d, state.items);
       const success = Math.random() < chance * 0.3;
       breakthroughs.push({
         discipleId: d.id,
@@ -513,7 +745,7 @@ export function processMonthlySettlement(
 
   const cultivationGains = state.disciples
     .filter((d) => d.status === "闭关")
-    .reduce((sum, d) => sum + calculateCultivationSpeed(d), 0);
+    .reduce((sum, d) => sum + calculateCultivationSpeed(d, state.items), 0) + cultivationBoost;
 
   const relImpact = calculateRelationshipImpact(state.disciples);
   const ruleImpact = generateRuleImpactSummary(state.sect.ruleTendency);
@@ -523,7 +755,7 @@ export function processMonthlySettlement(
     spiritStoneIncome: income,
     spiritStoneExpense: expense,
     spiritStoneNet: net,
-    reputationChange: Math.floor(relImpact.impact / 10),
+    reputationChange: Math.floor(relImpact.impact / 10) + reputationImpact,
     casualties: [],
     breakthroughs,
     newDisciples: [],
@@ -535,24 +767,91 @@ export function processMonthlySettlement(
     relationshipChanges: [],
     relationshipSummary: relImpact,
     ruleImpact,
+    inventoryChanges: [],
+    bondEffects,
+    activeBonds,
   };
 }
 
-const EVENT_TEMPLATES = [
+const DISPUTE_EVENT_TEMPLATES: EventTemplate[] = [
+  {
+    title: "洞府资源之争",
+    type: "dispute" as const,
+    severity: "low" as const,
+    description: "两名弟子因抢占修炼洞府大打出手，一方灵田被踩踏，损失不小。",
+    options: [
+      { text: "严厉处罚闹事者", effects: { ruleTendency: -5, reputation: 3 } },
+      { text: "公平重新分配洞府", effects: { spiritStones: -40, reputation: 5, ruleTendency: 2 } },
+      { text: "勒令双方冷静思过", effects: { ruleTendency: -2, spiritStones: -20 } },
+    ],
+  },
+  {
+    title: "灵石分配不公",
+    type: "dispute" as const,
+    severity: "medium" as const,
+    description: "有弟子投诉修炼灵石被克扣，与执事弟子激烈争执。",
+    options: [
+      { text: "彻查账目，秉公处理", effects: { spiritStones: -60, reputation: 8, ruleTendency: 3 } },
+      { text: "各打五十大板", effects: { ruleTendency: -3, reputation: -2 } },
+      { text: "追加灵石平息事端", effects: { spiritStones: -100, reputation: 5 } },
+    ],
+  },
+  {
+    title: "弟子私斗成伤",
+    type: "dispute" as const,
+    severity: "high" as const,
+    description: "两名关系恶劣的弟子私下比武，一方重伤濒死，影响恶劣。",
+    options: [
+      { text: "重罚主犯，逐出山门", effects: { reputation: 12, ruleTendency: -8 } },
+      { text: "责令赔偿，闭关思过", effects: { spiritStones: -150, ruleTendency: -4 } },
+      { text: "调解为上，双方和解", effects: { reputation: -5, ruleTendency: 8 } },
+    ],
+  },
+  {
+    title: "道统理念之争",
+    type: "dispute" as const,
+    severity: "medium" as const,
+    description: "修炼理念不同的两派弟子在议事堂激烈辩论，几乎升级为群殴。",
+    options: [
+      { text: "鼓励百家争鸣", effects: { reputation: 10, ruleTendency: 5 } },
+      { text: "统一修炼典籍", effects: { ruleTendency: -6, reputation: 3 } },
+      { text: "分设两堂分别修行", effects: { spiritStones: -80, reputation: 6 } },
+    ],
+  },
+];
+
+const COOP_EVENT_TEMPLATES: EventTemplate[] = [
+  {
+    title: "弟子结伴历练归来",
+    type: "dialogue" as const,
+    severity: "low" as const,
+    description: "两名外出历练的弟子结伴归来，带回不少收获，彼此关系更进一步。",
+    options: [
+      { text: "当众嘉奖二人", effects: { reputation: 6, spiritStones: -30 } },
+      { text: "记录历练心得入藏", effects: { reputation: 3, ruleTendency: 2 } },
+    ],
+  },
+  {
+    title: "师徒传道佳话",
+    type: "dialogue" as const,
+    severity: "medium" as const,
+    description: "宗门内一对师徒修炼刻苦，徒弟进步神速，成为弟子们的榜样。",
+    options: [
+      { text: "赏赐师徒二人", effects: { spiritStones: -80, reputation: 10 } },
+      { text: "请师徒公开讲道", effects: { reputation: 12, ruleTendency: 3 } },
+    ],
+  },
+];
+
+const EVENT_TEMPLATES: EventTemplate[] = [
   {
     title: "天降灵雨",
     type: "opportunity" as const,
     severity: "low" as const,
     description: "天空降下罕见的灵雨，宗门内灵气大增，弟子们修炼速度提升。",
     options: [
-      {
-        text: "组织弟子集体修炼",
-        effects: { reputation: 5, spiritStones: -50 },
-      },
-      {
-        text: "收集灵雨酿制药酒",
-        effects: { spiritStones: 100 },
-      },
+      { text: "组织弟子集体修炼", effects: { reputation: 5, spiritStones: -50 } },
+      { text: "收集灵雨酿制药酒", effects: { spiritStones: 100 } },
     ],
   },
   {
@@ -561,18 +860,9 @@ const EVENT_TEMPLATES = [
     severity: "medium" as const,
     description: "一群低阶妖兽从后山冲出，威胁到宗门安全。",
     options: [
-      {
-        text: "派遣弟子驱逐",
-        effects: { reputation: 10, spiritStones: -30 },
-      },
-      {
-        text: "设下陷阱诱杀",
-        effects: { spiritStones: 80, reputation: -5 },
-      },
-      {
-        text: "紧闭山门避让",
-        effects: { reputation: -10 },
-      },
+      { text: "派遣弟子驱逐", effects: { reputation: 10, spiritStones: -30 } },
+      { text: "设下陷阱诱杀", effects: { spiritStones: 80, reputation: -5 } },
+      { text: "紧闭山门避让", effects: { reputation: -10 } },
     ],
   },
   {
@@ -581,18 +871,9 @@ const EVENT_TEMPLATES = [
     severity: "low" as const,
     description: "一位游历的散修前来拜访，希望能在宗门暂住几日。",
     options: [
-      {
-        text: "热情款待，结交人脉",
-        effects: { spiritStones: -50, reputation: 8 },
-      },
-      {
-        text: "安排差事换取食宿",
-        effects: { spiritStones: 30 },
-      },
-      {
-        text: "婉言谢绝",
-        effects: {},
-      },
+      { text: "热情款待，结交人脉", effects: { spiritStones: -50, reputation: 8 } },
+      { text: "安排差事换取食宿", effects: { spiritStones: 30 } },
+      { text: "婉言谢绝", effects: {} },
     ],
   },
   {
@@ -601,18 +882,9 @@ const EVENT_TEMPLATES = [
     severity: "low" as const,
     description: "两名弟子因修炼资源分配问题发生争执，甚至差点动手。",
     options: [
-      {
-        text: "严厉处罚闹事者",
-        effects: { ruleTendency: -5, reputation: 3 },
-      },
-      {
-        text: "劝解调解，各退一步",
-        effects: { ruleTendency: 3 },
-      },
-      {
-        text: "公平重新分配资源",
-        effects: { spiritStones: -40, reputation: 5 },
-      },
+      { text: "严厉处罚闹事者", effects: { ruleTendency: -5, reputation: 3 } },
+      { text: "劝解调解，各退一步", effects: { ruleTendency: 3 } },
+      { text: "公平重新分配资源", effects: { spiritStones: -40, reputation: 5 } },
     ],
   },
   {
@@ -621,18 +893,9 @@ const EVENT_TEMPLATES = [
     severity: "high" as const,
     description: "宗门灵脉突然出现不稳定波动，若不及时处理可能造成严重后果。",
     options: [
-      {
-        text: "投入大量灵石稳定灵脉",
-        effects: { spiritStones: -200, reputation: 15 },
-      },
-      {
-        text: "暂时疏散弟子避开",
-        effects: { reputation: -10 },
-      },
-      {
-        text: "冒险抽取异变能量",
-        effects: { spiritStones: 150, reputation: -5 },
-      },
+      { text: "投入大量灵石稳定灵脉", effects: { spiritStones: -200, reputation: 15 } },
+      { text: "暂时疏散弟子避开", effects: { reputation: -10 } },
+      { text: "冒险抽取异变能量", effects: { spiritStones: 150, reputation: -5 } },
     ],
   },
   {
@@ -641,14 +904,8 @@ const EVENT_TEMPLATES = [
     severity: "medium" as const,
     description: "有弟子在后山发现一处古修洞府遗迹，似乎藏有宝物。",
     options: [
-      {
-        text: "派队伍深入探索",
-        effects: { spiritStones: 300, reputation: 10 },
-      },
-      {
-        text: "谨慎封印，从长计议",
-        effects: { reputation: 5 },
-      },
+      { text: "派队伍深入探索", effects: { spiritStones: 300, reputation: 10 } },
+      { text: "谨慎封印，从长计议", effects: { reputation: 5 } },
     ],
   },
   {
@@ -657,18 +914,9 @@ const EVENT_TEMPLATES = [
     severity: "high" as const,
     description: "探子来报，附近有邪修势力在宗门附近徘徊，意图不明。",
     options: [
-      {
-        text: "加强警戒，准备迎敌",
-        effects: { spiritStones: -100, reputation: 10 },
-      },
-      {
-        text: "主动出击，驱逐邪修",
-        effects: { reputation: 20, spiritStones: -50 },
-      },
-      {
-        text: "派人谈判交涉",
-        effects: { spiritStones: -80 },
-      },
+      { text: "加强警戒，准备迎敌", effects: { spiritStones: -100, reputation: 10 } },
+      { text: "主动出击，驱逐邪修", effects: { reputation: 20, spiritStones: -50 } },
+      { text: "派人谈判交涉", effects: { spiritStones: -80 } },
     ],
   },
   {
@@ -677,18 +925,9 @@ const EVENT_TEMPLATES = [
     severity: "medium" as const,
     description: "传闻附近山脉有异宝出世，光芒冲天。",
     options: [
-      {
-        text: "全力争夺",
-        effects: { spiritStones: 500, reputation: -10 },
-      },
-      {
-        text: "观望形势，伺机而动",
-        effects: { spiritStones: 150 },
-      },
-      {
-        text: "不参与争夺",
-        effects: { reputation: 5 },
-      },
+      { text: "全力争夺", effects: { spiritStones: 500, reputation: -10 } },
+      { text: "观望形势，伺机而动", effects: { spiritStones: 150 } },
+      { text: "不参与争夺", effects: { reputation: 5 } },
     ],
   },
   {
@@ -697,18 +936,9 @@ const EVENT_TEMPLATES = [
     severity: "critical" as const,
     description: "有弟子暗中与敌对势力勾结，意图盗取宗门功法。",
     options: [
-      {
-        text: "抓现行，严厉处置",
-        effects: { reputation: 15, ruleTendency: -10 },
-      },
-      {
-        text: "暗中观察，顺藤摸瓜",
-        effects: { spiritStones: -100, reputation: 5 },
-      },
-      {
-        text: "好言相劝，既往不咎",
-        effects: { reputation: -15, ruleTendency: 10 },
-      },
+      { text: "抓现行，严厉处置", effects: { reputation: 15, ruleTendency: -10 } },
+      { text: "暗中观察，顺藤摸瓜", effects: { spiritStones: -100, reputation: 5 } },
+      { text: "好言相劝，既往不咎", effects: { reputation: -15, ruleTendency: 10 } },
     ],
   },
 ];
@@ -717,16 +947,46 @@ export function generateRandomEvents(
   state: GameState
 ): SectEvent[] {
   const events: SectEvent[] = [];
-  const eventCount = Math.floor(Math.random() * 2) + 1;
+  let eventCount = Math.floor(Math.random() * 2) + 1;
 
   const availableDisciples = state.disciples.filter((d) => d.status === "空闲");
 
+  const enemies = state.disciples.filter((d) => d.bonds.some((b) => b.type === "仇敌")).length;
+  if (enemies >= 2 && Math.random() < 0.4) eventCount++;
+
   for (let i = 0; i < eventCount; i++) {
-    const template = EVENT_TEMPLATES[Math.floor(Math.random() * EVENT_TEMPLATES.length)];
+    let template: EventTemplate = EVENT_TEMPLATES[Math.floor(Math.random() * EVENT_TEMPLATES.length)];
+    const hasEnemies = state.disciples.some((a) => a.bonds.some((b) => b.type === "仇敌"));
+    if (hasEnemies && Math.random() < 0.35) {
+      template = DISPUTE_EVENT_TEMPLATES[Math.floor(Math.random() * DISPUTE_EVENT_TEMPLATES.length)];
+    } else if (state.disciples.some((a) => a.bonds.some((b) => b.type === "同修" || b.type === "师徒" || b.type === "挚友")) && Math.random() < 0.2) {
+      template = COOP_EVENT_TEMPLATES[Math.floor(Math.random() * COOP_EVENT_TEMPLATES.length)];
+    }
     if (!template) continue;
 
     const relatedDiscipleIds: string[] = [];
-    if (availableDisciples.length > 0) {
+
+    if (template.type === "dispute") {
+      const disc = state.disciples.filter((d) => d.bonds.some((b) => b.type === "仇敌"));
+      if (disc.length >= 2) {
+        const pool: string[] = [];
+        disc.forEach((d) => {
+          d.bonds.forEach((b) => {
+            if (b.type === "仇敌") {
+              const key = [d.id, b.withDiscipleId].sort().join("|");
+              if (!pool.includes(key)) {
+                pool.push(d.id, b.withDiscipleId);
+              }
+            }
+          });
+        });
+        if (pool.length >= 2) {
+          relatedDiscipleIds.push(pool[0], pool[1]);
+        }
+      }
+    }
+
+    if (relatedDiscipleIds.length < 2 && availableDisciples.length > 0) {
       const count = Math.min(2, availableDisciples.length);
       for (let j = 0; j < count; j++) {
         const idx = Math.floor(Math.random() * availableDisciples.length);

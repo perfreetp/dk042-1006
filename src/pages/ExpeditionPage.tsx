@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { SPIRIT_ROOT_COLORS, REALM_NAMES } from '@/types/game';
+import { calculateDiscipleCombatPower } from '@/utils/gameEngine';
 import {
   Compass,
   Swords,
@@ -12,10 +13,12 @@ import {
   X,
   Gem,
   Star,
+  Zap,
 } from 'lucide-react';
 
 export default function ExpeditionPage() {
   const disciples = useGameStore((s) => s.disciples);
+  const items = useGameStore((s) => s.items);
   const expeditionRealms = useGameStore((s) => s.expeditionRealms);
   const assignExpedition = useGameStore((s) => s.assignExpedition);
   const completeExpedition = useGameStore((s) => s.completeExpedition);
@@ -27,7 +30,7 @@ export default function ExpeditionPage() {
   const availableDisciples = disciples.filter((d) => d.status === '空闲');
   const teamDisciples = disciples.filter((d) => selectedTeam.includes(d.id));
 
-  const teamPower = teamDisciples.reduce((sum, d) => sum + (d.realmIndex + 1) * 100 + d.cultivation / 10, 0);
+  const teamPower = teamDisciples.reduce((sum, d) => sum + calculateDiscipleCombatPower(d, items), 0);
   const requiredPower = realm
     ? realm.recommendedRealmIndex * 200 + realm.difficulty * 100
     : 0;
@@ -339,8 +342,9 @@ export default function ExpeditionPage() {
                                 {d.spiritRoot}灵根
                               </span>
                               <span className="text-gold">{d.realm}</span>
-                              <span className="text-text-muted">
-                                战力: {Math.floor((d.realmIndex + 1) * 100 + d.cultivation / 10)}
+                              <span className="text-text-muted flex items-center gap-1">
+                                <Zap className="w-3 h-3 text-red-light" />
+                                战力: {Math.floor(calculateDiscipleCombatPower(d, items))}
                               </span>
                             </div>
                           </div>

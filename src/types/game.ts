@@ -48,9 +48,30 @@ export type QualityType = "下品" | "中品" | "上品" | "极品";
 
 export type MaterialRarity = "common" | "uncommon" | "rare" | "legendary";
 
+export type ItemSource = "crafted" | "expedition" | "market" | "starting" | "unknown";
+export type BondType = "同修" | "师徒" | "挚友" | "仇敌" | "路人";
+
 export interface DiscipleRelationship {
   discipleId: string;
   value: number;
+}
+
+export interface DiscipleBond {
+  withDiscipleId: string;
+  type: BondType;
+  monthFormed: number;
+}
+
+export interface PillEffect {
+  cultivationGain?: number;
+  heal?: boolean;
+  breakthroughBoost?: number;
+}
+
+export interface ArtifactBonus {
+  power?: number;
+  cultivationSpeed?: number;
+  defense?: number;
 }
 
 export interface Disciple {
@@ -67,6 +88,7 @@ export interface Disciple {
   allocatedStones: number;
   lifespan: number;
   relationships: DiscipleRelationship[];
+  bonds: DiscipleBond[];
   equippedItems: string[];
   avatar: number;
 }
@@ -121,10 +143,22 @@ export interface InventoryItem {
   description: string;
   equippedBy: string | null;
   effect: string;
+  source: ItemSource;
+  reserved: boolean;
+  marketPrice: number;
+  pillEffect?: PillEffect;
+  artifactBonus?: ArtifactBonus;
+}
+
+export interface MaterialInventoryEntry {
+  quantity: number;
+  source: ItemSource;
+  reserved: boolean;
+  marketPrice: number;
 }
 
 export interface MaterialInventory {
-  [key: string]: number;
+  [key: string]: MaterialInventoryEntry;
 }
 
 export interface EventOption {
@@ -136,14 +170,17 @@ export interface EventOption {
   };
 }
 
-export interface SectEvent {
-  id: string;
+export interface EventTemplate {
   title: string;
   description: string;
   type: "dialogue" | "dispute" | "disaster" | "invasion" | "treasure" | "betrayal" | "opportunity";
   severity: EventSeverity;
-  relatedDiscipleIds: string[];
   options: EventOption[];
+}
+
+export interface SectEvent extends EventTemplate {
+  id: string;
+  relatedDiscipleIds: string[];
   resolved: boolean;
   monthOccurred: number;
 }
@@ -199,6 +236,25 @@ export interface CraftRecord {
   quality: QualityType;
 }
 
+export interface InventoryChange {
+  kind: "material" | "item";
+  name: string;
+  quality?: QualityType;
+  type?: ItemType;
+  delta: number;
+  reason: string;
+}
+
+export interface BondEffect {
+  discipleAName: string;
+  discipleBName: string;
+  type: BondType;
+  effect: string;
+  cultivationBoost: number;
+  expeditionBoost: number;
+  reputationImpact: number;
+}
+
 export interface MonthlyReport {
   month: number;
   spiritStoneIncome: number;
@@ -214,8 +270,11 @@ export interface MonthlyReport {
   explorationRecords: ExplorationRecord[];
   craftRecords: CraftRecord[];
   relationshipChanges: RelationshipChange[];
-  relationshipSummary: { improved: number; worsened: number; impact: number };
+  relationshipSummary: { improvedPairs: number; worsenedPairs: number; impact: number };
   ruleImpact: { label: string; effect: string }[];
+  inventoryChanges: InventoryChange[];
+  bondEffects: BondEffect[];
+  activeBonds: { discipleAName: string; discipleBName: string; type: BondType }[];
 }
 
 export interface GameState {
@@ -293,4 +352,19 @@ export const RELATION_COLORS: Record<FactionRelationType, string> = {
   盟友: "#10B981",
   中立: "#6B7280",
   敌对: "#EF4444",
+};
+
+export const BOND_COLORS: Record<BondType, string> = {
+  同修: "#F59E0B",
+  师徒: "#A855F7",
+  挚友: "#10B981",
+  仇敌: "#EF4444",
+  路人: "#6B7280",
+};
+
+export const QUALITY_PRICE_MULTIPLIER: Record<QualityType, number> = {
+  下品: 1,
+  中品: 2.5,
+  上品: 6,
+  极品: 15,
 };

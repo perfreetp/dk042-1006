@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useGameStore } from '@/store/gameStore';
-import { REALM_NAMES, RELATION_COLORS } from '@/types/game';
+import { REALM_NAMES, RELATION_COLORS, BOND_COLORS } from '@/types/game';
 import {
   X,
   TrendingUp,
@@ -19,6 +19,7 @@ import {
   Link,
   Gavel,
   Flame,
+  Package,
 } from 'lucide-react';
 
 export default function SettlementModal() {
@@ -29,7 +30,7 @@ export default function SettlementModal() {
   const disciples = useGameStore((s) => s.disciples);
   const factions = useGameStore((s) => s.factions);
 
-  const [tab, setTab] = useState<'overview' | 'exploration' | 'relationships' | 'rule'>('overview');
+  const [tab, setTab] = useState<'overview' | 'exploration' | 'inventory' | 'relationships' | 'rule'>('overview');
 
   useEffect(() => {
     setTab('overview');
@@ -55,6 +56,10 @@ export default function SettlementModal() {
     上品: 'text-gold-light',
     中品: 'text-blue-light',
     下品: 'text-text-muted',
+  };
+  const kindLabel: Record<string, string> = {
+    material: '材料',
+    item: '物品',
   };
 
   return (
@@ -100,6 +105,7 @@ export default function SettlementModal() {
           {[
             { id: 'overview', label: '收支·伤亡·突破', icon: Gem },
             { id: 'exploration', label: '探索·炼制', icon: Map },
+            { id: 'inventory', label: '库存变化', icon: Package },
             { id: 'relationships', label: '弟子关系', icon: Link },
             { id: 'rule', label: '门规·势力', icon: Gavel },
           ].map((t) => {
@@ -367,6 +373,72 @@ export default function SettlementModal() {
             </div>
           )}
 
+          {tab === 'inventory' && (
+            <div className="space-y-5">
+              <div className="bg-bg-dark p-4 rounded-lg border border-border">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Package className="w-5 h-5 text-gold" />
+                    <span className="font-display text-gold-light">库存变化明细</span>
+                  </div>
+                  <div className="flex gap-4 text-sm">
+                    <span className="text-green-light">
+                      增加 {currentSettlement.inventoryChanges.filter((c) => c.delta > 0).length} 项
+                    </span>
+                    <span className="text-red-light">
+                      减少 {currentSettlement.inventoryChanges.filter((c) => c.delta < 0).length} 项
+                    </span>
+                  </div>
+                </div>
+
+                {currentSettlement.inventoryChanges.length > 0 ? (
+                  <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                    {currentSettlement.inventoryChanges.map((ic, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2.5 rounded bg-bg-card text-sm"
+                      >
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-xs px-2 py-0.5 rounded bg-bg-dark text-text-muted">
+                            {kindLabel[ic.kind] || ic.kind}
+                          </span>
+                          {ic.quality && (
+                            <span className={`text-xs ${qualityColor[ic.quality]}`}>
+                              [{ic.quality}]
+                            </span>
+                          )}
+                          <span className="text-text-primary">{ic.name}</span>
+                          {ic.type && ic.kind === 'item' && (
+                            <span className="text-xs text-text-muted">
+                              ({ic.type === 'pill' ? '丹药' : ic.type === 'artifact' ? '法器' : '材料'})
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-text-muted max-w-[140px] truncate">{ic.reason}</span>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded font-medium ${
+                              ic.delta > 0
+                                ? 'bg-green/20 text-green-light'
+                                : 'bg-red/20 text-red-light'
+                            }`}
+                          >
+                            {ic.delta > 0 ? '+' : ''}{ic.delta}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center text-text-muted py-12">
+                    <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p>本月库存无变化</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {tab === 'relationships' && (
             <div className="space-y-5">
               <div className="bg-bg-dark p-4 rounded-lg border border-border">
@@ -377,10 +449,10 @@ export default function SettlementModal() {
                   </div>
                   <div className="flex gap-4 text-sm">
                     <span className="text-green-light">
-                      友好关系 {currentSettlement.relationshipSummary.improved} 对
+                      友好关系 {currentSettlement.relationshipSummary.improvedPairs} 对
                     </span>
                     <span className="text-red-light">
-                      对立关系 {currentSettlement.relationshipSummary.worsened} 对
+                      对立关系 {currentSettlement.relationshipSummary.worsenedPairs} 对
                     </span>
                     <span className={`${
                       currentSettlement.relationshipSummary.impact >= 0 ? 'text-green-light' : 'text-red-light'
@@ -392,7 +464,7 @@ export default function SettlementModal() {
                 </div>
 
                 {currentSettlement.relationshipChanges.length > 0 ? (
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-2">
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-2 mb-4">
                     {currentSettlement.relationshipChanges.map((rc, idx) => (
                       <div
                         key={idx}
@@ -419,9 +491,93 @@ export default function SettlementModal() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-center text-text-muted py-8">本月弟子关系无重大变化</p>
+                  <p className="text-center text-text-muted py-4 mb-4">本月弟子关系无重大变化</p>
                 )}
               </div>
+
+              {(currentSettlement.activeBonds.length > 0 || currentSettlement.bondEffects.length > 0) && (
+                <div className="bg-bg-dark p-4 rounded-lg border border-border">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Heart className="w-5 h-5 text-purple-light" />
+                      <span className="font-display text-gold-light">活跃羁绊</span>
+                    </div>
+                    <span className="text-xs text-text-muted">
+                      共 {currentSettlement.activeBonds.length} 对羁绊
+                    </span>
+                  </div>
+
+                  {currentSettlement.activeBonds.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs text-text-muted mb-2">当前羁绊</p>
+                      <div className="flex flex-wrap gap-2">
+                        {currentSettlement.activeBonds.map((bond, idx) => (
+                          <span
+                            key={idx}
+                            className="text-xs px-3 py-1.5 rounded bg-bg-card flex items-center gap-1.5"
+                          >
+                            <span className="text-text-primary">{bond.discipleAName}</span>
+                            <span className="text-text-muted">·</span>
+                            <span className="text-text-primary">{bond.discipleBName}</span>
+                            <span
+                              className="ml-1 px-1.5 py-0.5 rounded text-xs font-medium"
+                              style={{ color: BOND_COLORS[bond.type], backgroundColor: `${BOND_COLORS[bond.type]}20` }}
+                            >
+                              {bond.type}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {currentSettlement.bondEffects.length > 0 && (
+                    <div>
+                      <p className="text-xs text-text-muted mb-2">羁绊效果</p>
+                      <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+                        {currentSettlement.bondEffects.map((be, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3 rounded bg-bg-card border border-border"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-text-primary font-medium">{be.discipleAName}</span>
+                                <span className="text-text-muted">·</span>
+                                <span className="text-text-primary font-medium">{be.discipleBName}</span>
+                                <span
+                                  className="px-2 py-0.5 rounded text-xs font-medium"
+                                  style={{ color: BOND_COLORS[be.type], backgroundColor: `${BOND_COLORS[be.type]}20` }}
+                                >
+                                  {be.type}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-xs text-text-muted mb-2">{be.effect}</p>
+                            <div className="flex flex-wrap gap-3 text-xs">
+                              {be.cultivationBoost !== 0 && (
+                                <span className={be.cultivationBoost > 0 ? 'text-purple-light' : 'text-red-light'}>
+                                  修炼加成 {be.cultivationBoost > 0 ? '+' : ''}{be.cultivationBoost}
+                                </span>
+                              )}
+                              {be.expeditionBoost !== 0 && (
+                                <span className={be.expeditionBoost > 0 ? 'text-blue-light' : 'text-red-light'}>
+                                  探索加成 {be.expeditionBoost > 0 ? '+' : ''}{be.expeditionBoost}
+                                </span>
+                              )}
+                              {be.reputationImpact !== 0 && (
+                                <span className={be.reputationImpact > 0 ? 'text-gold-light' : 'text-red-light'}>
+                                  声望影响 {be.reputationImpact > 0 ? '+' : ''}{be.reputationImpact}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
